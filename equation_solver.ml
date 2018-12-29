@@ -14,8 +14,11 @@ let (~-) = Rat.(~-)
 module Make (A : sig 
     type t [@@deriving sexp_of]
     include Comparable.S with type t := t
-    end) (B : Comparable.S) : sig 
-    type equation = Rat.t A.Map.t * Rat.t B.Map.t (* equation: sum of them all = 0 *)
+    end) (B : sig 
+    type t [@@deriving sexp_of]
+    include Comparable.S with type t := t
+    end) : sig 
+    type equation = Rat.t A.Map.t * Lazy_vector.Make(B).t (* equation: sum of them all = 0 *)
     [@@deriving sexp_of]
     
     (** brings as many equation as it can to the form:
@@ -23,31 +26,40 @@ module Make (A : sig
     val good_form : elimination_order:A.t list -> equation list -> equation list
 end = struct
 
-    type equation = Rat.t A.Map.t * Rat.t B.Map.t (* equation: sum of them all = 0 *)
+    module Lazy_vector = Lazy_vector.Make(B)
+    (* the function is guaranteed memoized *)
+    type equation = Rat.t A.Map.t * Lazy_vector.t (* equation: sum of them all = 0 *)
     [@@deriving sexp_of]
 
     let scale_equation (m1, m2) s =
-        Map.map m1 ~f:(( * ) s), Map.map m2 ~f:(( * ) s);;
+        Map.map m1 ~f:(( * ) s), Lazy_vector.scale m2 s;;
+
+    let rec merge_skewed' ~combine m1 m2 =
+        match Int.(<=) (Map.length m1) (Map.length m2) with
+        | false -> merge_skewed' ~combine:(fun x y -> combine y x) m2 m1
+        | true ->
+            List.fold (Map.to_alist m1) ~init:m2 ~f:(fun m (k, v1) ->
+                match Map.find m2 k with
+                | None -> Map.add_exn m ~key:k ~data:v1
+                | Some v2 ->
+                    match combine v1 v2 with
+                    | Some v -> Map.set m ~key:k ~data:v
+                    | None -> Map.remove m k
+            )
 
     let add_equation ~must_remove (a1, b1) (a2, b2) =
         let add_map a1 a2 =
-            Map.merge a1 a2 ~f:(fun ~key:_ -> function
-                | `Left a -> Some a
-                | `Right b -> Some b
-                | `Both (a, b) ->
-                    Some (a + b))
+            merge_skewed' a1 a2 ~combine:(fun x y -> 
+                let res = x + y in
+                if Rat.(=) res Rat.zero then None else Some res)
         in
-        let a, b = add_map a1 a2, add_map b1 b2 in
-        let a = Map.filteri a ~f:(fun ~key ~data ->
-            if A.(=) must_remove key then
-            (if Rat.abs data = Rat.zero then false
-            else raise_s [%sexp "tried to eliminate this, but it stayed", (must_remove : A.t), (a, b : equation)]
-        )
-            else (if Rat.(=) data Rat.zero then false else true))
+        let a, b = add_map a1 a2, Lazy_vector.(+) b1 b2 in
+        let () = match Map.find a must_remove with
+            | Some _ -> 
+                raise_s [%sexp "tried to eliminate this, but it stayed", (must_remove : A.t), (a, b : equation)]
+            | None -> ()
         in
-        if Map.is_empty a && Map.is_empty b then
-        None
-        else Some (a, b)
+        Some (a, b)
 
     let rec find_and_give_remaining ~f l = match l with
         | [] -> None
@@ -68,7 +80,7 @@ end = struct
             | None ->
                 good_form ~elimination_order good_equations bad_equations
             | Some (eq1, bad_equations) ->
-            
+
             match Map.find (fst eq1) a with
             | None ->
                 assert false;

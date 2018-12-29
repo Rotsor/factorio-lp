@@ -3,14 +3,6 @@ open! Core
 open! Types_nice
 
 open Common
-let stack = ref Item_name.Set.empty
-
-let recipes_in_use =
- [
-     "gas-carbon-dioxide-from-wood", "liquifier";
-     "carbon-separation-2", "liquifier"; (* not really *)
- ] |> List.map ~f:(fun (recipe, machine) ->
-    Recipe_name.of_string recipe, Item_name.of_string machine)
 
 let hide_recipe = 
     let hidden =
@@ -36,141 +28,7 @@ let hide_recipe =
         "diamond"; "amethyst"; "ruby"; "emerald"; "sapphire"; "topaz";
         "ore2"; "ore4"; "ore5"; "ore6";
         "-void-"] ~f:(fun forbidden_infix ->
-        String.is_substring ~substring:forbidden_infix (Recipe_name.to_string name)
-    )
-
-let item_confidence item = match Item_name.to_string item with
-    | "electrical-MJ"
-    | "chemical-MJ"
-    | "charcoal"
-        -> 1.
-    | "wood-bricks" | "wood-pellets" | "cellulose-fiber"
-        -> 500.
-    | _ -> 0.01
-
-let rec
- r s = item_price (Item_name.of_string s)
- and
- item_price_rec = function
-  | "water" -> 0.
-  | "electrical-MJ" -> 1.
-  | "chemical-MJ" -> 0.46913580246913582
-  | "water-purified" -> 0.
-  | "water-saline" -> 0.
-  | "gas-oxygen" -> 0.
-  | "gas-hydrogen" -> 0.
- (*
-  | "electrical-MJ" -> 1.
-  | 
-  | "charcoal" -> item_price Item_name.chemical_kj * 5000.
-  | "carbon" -> item_price Item_name.chemical_kj * 6000.
-  | "algae-green" -> 0.48
-  | "wood-bricks" -> 13.778372685185186
-  | "wood-pellets" -> 6.8294224537037032
-  | "cellulose-fiber" -> 1.0784731867283939
-  | "gas-oxygen" -> 0.
-  | "gas-hydrogen" -> 0.
-  | "slag" -> 0.86725713915812364
-  | "iron-plate" -> 5.16
-  | "copper-plate" -> 2.0
-  | "iron-ore" -> r "iron-plate" /. 5.0 *. 3.0 - r "chemical-kJ" * 180. / 0.47619047619047616
-  | "copper-ore" -> r "copper-plate" /. 5.0 *. 3.0 - r "chemical-kJ" * 180. / 0.47619047619047616
-  | "stone-crushed" -> r "slag" / 1.9 (* 0.45 *)
-  | "gas-carbon-dioxide" -> 0.1
-  | "gas-carbon-monoxide" -> r "gas-carbon-dioxide" + 0.001
-  | "electronic-circuit" -> 100000.
-  | "raw-wood" -> 20.
-  | "wood" -> 10.
-  | "steam" -> 0.01
-  | "water-mineralized" -> r "stone-crushed" * 0.108
-  | "water-saline" -> 0.01
-  | "water" -> 5.0629629629629636E-06
-  | "water-purified" -> 0.00001
-  | "solid-alginic-acid" -> 0.01
-  | "stone-brick" -> 
-    value [2., Item_name.of_string "stone"; 180. * 3.5, Item_name.of_string "chemical-kJ"]
-  | "angels-ore3" ->
-    2.
-  | "angels-ore3-crushed" ->
-    r "angels-ore3" - 0.5 * r "stone-crushed"
-    (* saphirite *)
-  | "angels-ore1" -> 1.5
-  | "angels-ore1-crushed" -> 1.5 - 0.5 * r "stone-crushed"
-  | item ->
-    let item = Item_name.of_string item in
-    match List.filter Game_data.recipes ~f:(fun (recipe : Recipe.t) ->
-        List.exists recipe.outputs ~f:(fun (_c, x) -> Item_name.(=) x item)) with
-    | [ recipe ] -> 
-        (match Category.to_string recipe.category with
-        | "angels-converter" -> 0.
-        | _ -> 
-    
-        (match recipe.outputs with
-        | [ c, x ] when Item_name.(=) x item -> 
-         (value recipe.inputs / c)
-        | _ -> 10000.))  *)
-    | _ -> 10000.
-and
-item_price item = 
-  if Set.mem !stack item then
-    raise_s [%sexp "dependency cycle", (item : Item_name.t), (!stack : Item_name.Set.t)]
-  else (
-      let tmp = !stack in
-      stack := Set.add tmp item;
-      let res = item_price_rec (Item_name.to_string item) in
-      stack := tmp;
-      res
-  )
-and
-value =
-  fun l -> List.map l ~f:(fun (c, x) -> c * item_price x)
-  |> sum
-
-module Suggestion = struct
-    type t = {
-        item : Item_name.t;
-        suggestion : float;
-    } [@@deriving sexp]
-
-    let sexp_of_t { item; suggestion } =
-        [%sexp (item : Item_name.t), (suggestion : float), (`now (item_price item : float))]
-
-    let diff a b =
-        if Float.is_nan a || Float.is_nan b
-        then 0.
-        else
-        ((if Float.sign_exn a <> Float.sign_exn b 
-        then
-        10000. else 0.) + 
-        Float.abs (log (Float.abs a) - log (Float.abs b)))
-
-    let bigness { item; suggestion } =
-        diff suggestion (item_price item) * item_confidence item
-end
-
-let desired_growth_per_hour = 1.
-
-type value = (float * Item_name.t) list [@@deriving sexp]
-
-module Value = struct
-    include Value
-end
-
-
-module Result = struct
-    type t = {
-        gain_per_second : Value.t;
-        capital : Value.t;
-    } [@@deriving sexp]
-
-    let paybacks_per_hour t = 
-        let gain_per_second = Value.utility ~item_price t.gain_per_second in
-        let capital = Value.utility ~item_price t.capital in
-        (gain_per_second / capital) * 3600.0
-
-    (* let suggestions { gain_per_second; capital } =
-        Value.suggestions gain_per_second ~desired_utility:(desired_growth_per_hour / 3600. * Value.utility ~item_price capital) *)
-end
+        String.is_substring ~substring:forbidden_infix (Recipe_name.to_string name))
 
 let cmd f = Command.basic ~summary:"" (Command.Param.return f)
 let cmd_async f = Async.Command.async ~summary:"" (Command.Param.return f)
@@ -216,10 +74,6 @@ module Configuration = struct
         Out_channel.write_all "configuration.sexp" ~data:(Sexp.to_string_hum [%sexp (t : Latest.t)])
 end
 
-let generate_report configuration : Value.t =
-    Value.sum (List.map configuration ~f:(fun { Configuration.V1.blueprint; quality = _; quantity; name = _ } ->
-        Value.scale (Blueprint.output blueprint) quantity
-    ))
 module Solver = Equation_solver.Make(Item_name)(String)
 
 open Async
@@ -235,13 +89,9 @@ let rec binary_search ~f a b =
         binary_search ~f c b
 
 
+module Lazy_vector = Lazy_vector.Make(String)
+
 let print_report c =
-    let net = generate_report c in
-    let gross = 
-        Value.sum (List.map c ~f:(fun { Configuration.V1.blueprint; quality = _; quantity; name = _ } ->
-            Map.map ~f:(max 0.) (Value.scale (Blueprint.output blueprint) quantity)
-        ))
-    in
     let elimination_order =
         List.rev (List.concat_map c ~f:(fun
             { Configuration.V1.blueprint; quality = _; quantity = _; name = _ } ->
@@ -258,9 +108,9 @@ let print_report c =
                     Map.filter 
                         ~f:(fun x -> Float.abs x > 1e-13)
                         (Value.(+) (Value.scale (Blueprint.capital blueprint) (-growth/(3600.))) (Blueprint.output blueprint)),
-                    String.Map.singleton name (1.0))
+                    Lazy_vector.singleton name)
             )
-        |> List.map ~f:(let conv x = Map.map ~f:Rat.of_float_dyadic x in fun (a, b) -> (conv a, conv b))
+        |> List.map ~f:(let conv x = Map.map ~f:Rat.of_float_dyadic x in fun (a, b) -> (conv a, b))
     in
     let solve growth = 
         Core.printf "solving for %.4f... %!" growth;
@@ -275,6 +125,7 @@ let print_report c =
             match Int.(=) (Map.length items) 1 with
             | false -> `Mixed
             | true ->
+                let recipes = Lazy_vector.to_map recipes in
                 if List.for_all (Map.data recipes) ~f:(fun x -> (Rat.(>=) x Rat.zero))
                 then `Positive
                 else 
@@ -297,26 +148,32 @@ let print_report c =
     let solution, equations = snd (solve (growth_per_hour *. 0.99)) in
     print_s [%sexp (solution : Solver.equation)];
     let electricity_recipe_name =
-        match List.filter (Map.keys (snd solution)) ~f:(String.is_prefix ~prefix:"electrical-MJ@") with
+        match List.filter (Map.keys (Lazy_vector.to_map (snd solution))) ~f:(String.is_prefix ~prefix:"electrical-MJ@") with
         | [ key ] -> key
         | [] -> raise_s [%sexp "no electricity recipe?"]
         | _ :: _ :: _ -> raise_s [%sexp "multiple electricity recipes?"]
     in
     let () = 
-        List.iter equations ~f:(fun ((what, _) as eqn) ->
+        let recipes_to_map = (fun (what, how_much) ->
+                (what, Lazy_vector.to_map how_much)
+            )
+        in
+        let solution = recipes_to_map solution in
+        List.map equations ~f:recipes_to_map
+        |>
+        List.iter ~f:(fun ((what, _) as eqn) ->
             let get (_, how_much) =
                 Option.value ~default:Rat.zero (Map.find how_much electricity_recipe_name)
             in
             printf
-                !"%60s: %12.3f\n" 
+                !"%60s: %12.3f\n"
                     (Sexp.to_string ([%sexp  (what : Rat.t Item_name.Map.t)]))
                     (Rat.to_float (Rat.(/) 
                         (get eqn)
                         (get solution)))
         )
     in
-    ignore gross;
-    ignore net;
+    ()
 (*    let m = Map.merge net gross ~f:(fun ~key:_ -> function
     | `Left x -> Some (x, 0.)
     | `Right y -> Some (0., y)
@@ -338,12 +195,6 @@ let trivial_blueprints : (string * Blueprint.V1.t) list =
                     Blueprint.trivial ~recipe:recipe.name ~machine:machine.name ())
             else None
         ))
-
-let utility = Value.utility ~item_price
-let gain_per_second blueprint = 
-    utility (Blueprint.output blueprint)
-let paybacks_per_hour blueprint =
-    (gain_per_second blueprint / (utility (Blueprint.capital blueprint))) * 3600.0
 
 let can_produce ~have ~recipe_output =
     Map.merge have recipe_output ~f:(fun ~key:_ -> function
@@ -535,13 +386,14 @@ let configuration =
         ]
     ) @
     (* metallurgy *)
-    (match `t2 with
+    (match `t3 with
     | `t0 -> 
         [
             trivial 1. ~inserters:0. "angelsore1-crushed-smelting" "stone-furnace";
             trivial 1. ~inserters:0. "angelsore3-crushed-smelting" "stone-furnace";
             trivial 1. ~inserters:0. "angelsore5-crushed-smelting" "stone-furnace";
             trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";
+            trivial 1. "steel-plate" "";
         ]
     | `t1 ->
         [
@@ -549,6 +401,7 @@ let configuration =
             trivial 1. ~inserters:0. "copper-plate" "stone-furnace";
             trivial 1. ~inserters:0. "angelsore5-crushed-smelting" "stone-furnace";
             trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";            
+            trivial 1. "steel-plate" "";
         ]
     | `t2 -> 
         [
@@ -557,13 +410,24 @@ let configuration =
             trivial 1. "angels-plate-iron" "";
             trivial 1. ~inserters:0. "copper-plate" "stone-furnace";
             trivial 1. ~inserters:0. "angelsore5-crushed-smelting" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";            
+            trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";
+            trivial 1. "steel-plate" "";
+        ]
+    | `t3 ->
+            [
+
+            trivial 1. "molten-iron-smelting-1" "";
+            trivial 1. "iron-ore-smelting" "";
+            trivial 1. "angels-plate-iron" "";
+            trivial 1. ~inserters:0. "copper-plate" "stone-furnace";
+            trivial 1. ~inserters:0. "angelsore5-crushed-smelting" "stone-furnace";
+            trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";                
+            trivial 1. "angels-plate-steel" "";
         ]
     )
 
 let improve_configuration_hardcoded () =
     let c = configuration in
-    let have = generate_report c in
     let unique_producer_recipes =
         List.concat_map Game_data.recipes ~f:(fun recipe ->
             List.map recipe.outputs ~f:(fun (_amt, name) -> name, recipe.name))
@@ -601,57 +465,23 @@ let improve_configuration_hardcoded () =
             quantity = 0.0;
             name = "auto: " ^ (Recipe_name.to_string recipe) ^ " for " ^ (Item_name.to_string name) ;
         }
-    ) unique_producer_recipes);
-    let candidates =
-        List.filter trivial_blueprints ~f:(fun (_, x) ->
-            let recipe_output = Blueprint.output x in
-            can_produce ~have ~recipe_output)
-        |>
-        sort_by ~f:(fun (_name,x) -> paybacks_per_hour x)
-    in
-    List.iter candidates ~f:(fun (name, x) ->
-        print_s [%sexp { name : string; paybacks_per_hour = (paybacks_per_hour x : float); output = (gain_per_second x : float) }]
-    )
+    ) unique_producer_recipes)
 ;;
 
 let rec improve_configuration () =
     let c = Configuration.load () in
-    let have = generate_report c in
     print_report c;
-    let candidates = 
-        List.filter trivial_blueprints ~f:(fun (_, x) ->
-            let recipe_output = Blueprint.output x in
-            can_produce ~have ~recipe_output)
-        |>
-        sort_by ~f:(fun (_name,x) -> paybacks_per_hour x)
-    in
-    List.iter candidates ~f:(fun (name, x) ->
-        print_s [%sexp { name : string; paybacks_per_hour = (paybacks_per_hour x : float); output = (gain_per_second x : float) }]
-    );
     Async_interactive.ask_yn "add last to configuration?"
     >>= function
     | true ->
         let _ = raise_s [%sexp "blergh"] in
-        let (name, blueprint) = Option.value_exn (List.last candidates) in
-        Configuration.save ({name; blueprint; quantity = 1.0; quality = Expanding} :: c);
+        (* Configuration.save ({name; blueprint; quantity = 1.0; quality = Expanding} :: c); *)
         improve_configuration ()
     | false -> improve_configuration ()
 
 let () =
     Command.run (Command.group ~summary:""
-    [ "items", cmd (fun () ->
-        List.iter 
-            [
-                "slag";
-                "stone-furnace";
-                "steam-engine";
-                "stone";
-                "stone-brick";
-            ]
-            ~f:(fun item_s -> 
-            let item = Item_name.of_string item_s in
-            printf "%18s%15.3f\n" item_s (item_price item))
-    );
+    [
     "competition", cmd run_competition;
     "improve", cmd_async (fun () ->
         improve_configuration ()
