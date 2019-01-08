@@ -1,15 +1,16 @@
-
 /silent-command
 
 accessibleitems = {}
 
-
 function ocaml_string (s)
-    return "{qbl|" .. s .. "|qbl}"
+    return "{q|" .. s .. "|q}"
 end
 
 function ocaml_float (f)
-    return "Float.of_string(" .. ocaml_string(tostring(f)) .. ")"
+    res = tostring(f)
+    found = string.find(res, ".", 1, true)
+    if found == nil then return res .. "."  else return res
+    end
 end
 
 function ocaml_float_option(f)
@@ -17,6 +18,14 @@ function ocaml_float_option(f)
         return "None"
     else
         return "Some (".. ocaml_float(f) ..")"
+    end
+end
+
+function ocaml_int_option(f)
+    if f == nil then
+        return "None"
+    else
+        return "Some (" .. tostring(f) ..")"
     end
 end
 
@@ -35,6 +44,12 @@ machine_lines = {}
 recipe_lines = {}
 
 ignored_crafters = {}
+
+for k,v in pairs(game.fluid_prototypes) do
+    line = k .. " fuel_value= " .. tostring(v.fuel_value) .. " | "
+    table.insert(listitems, line) 
+end
+
 for k,v in pairs(game.item_prototypes) do
     x="crafting_categories"
     x="crafting_speed"
@@ -50,10 +65,10 @@ for k,v in pairs(game.item_prototypes) do
     x="mining_speed"
     x="mining_power"
     is_smelter = 0
+    line = k .. " fuel_value= " .. tostring(v.fuel_value) .. " | "
     if not (v.place_result == nil) and accessibleitems[k] == 1 then
         e = v.place_result
         cc = e.crafting_categories
-        line = k
         if not (cc == nil) then
             drain = 0
             elec = e.electric_energy_source_prototype
@@ -66,24 +81,27 @@ for k,v in pairs(game.item_prototypes) do
                 line = line .. " " .. x
                 table.insert(ocaml_categories,ocaml_string(x))
             end
-            table.insert(listitems, line)
             if not (elec == nil) then
                 ocaml_power = "Electrical { power = " .. ocaml_float(e.max_energy_usage) .. "; drain = " .. ocaml_float(elec.drain) .. "}"
             else
                 ocaml_power = "Chemical { power = " .. ocaml_float(e.max_energy_usage) .. "}"
             end
             ocaml_line = 
-                "{ name =" .. ocaml_string(k) .. "; " ..
+                "({ name =" .. ocaml_string(k) .. "; " ..
                 "categories = [ " .. table.concat(ocaml_categories, "; ") .. "]; " ..
                 "crafting_speed = " .. ocaml_float(e.crafting_speed) .. "; " ..
                 "power = " .. ocaml_power .. "; " ..
-                "};"
+                "ingredient_count = " .. ocaml_int_option(e.ingredient_count) .. "; " ..
+                "size_x = " .. ocaml_float(e.collision_box.right_bottom.x - e.collision_box.left_top.x) .. "; " ..
+                "size_y = " .. ocaml_float(e.collision_box.right_bottom.y - e.collision_box.left_top.y) .. "; " ..
+                "} : machine);"
             table.insert(machine_lines,ocaml_line)
         else
             table.insert(ignored_crafters,k .. tostring(e.crafting_speed))
         end
         
     end
+    table.insert(listitems, line)    
 end
 
 table.sort(listitems)
@@ -123,12 +141,12 @@ for a, b in pairs(game.player.force.recipes) do
         item = item .. y.amount .. ":" .. y.name .. ", "
     end
     ocaml_line = 
-       "{ name =" .. ocaml_string(b.name) .. "; " ..
+       "({ name =" .. ocaml_string(b.name) .. "; " ..
        "inputs = [ " .. table.concat(ocaml_inputs, "; ") .. "]; " ..
        "outputs = [ " .. table.concat(ocaml_outputs, "; ") .. "]; " ..
        "effort = " .. ocaml_float(b.energy) .. "; " ..
        "category = " .. ocaml_string (b.category) .. "; " ..
-       "};"
+       "} : recipe);"
     table.insert(listresources,item) 
     table.insert(recipe_lines,ocaml_line) 
     end

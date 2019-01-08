@@ -11,7 +11,7 @@ type product_amount =
         amount_max : float option;
         probability : float option;
     }
-[@@deriving sexp]    
+[@@deriving sexp]
 
  type recipe = {
     name : string;
@@ -26,4 +26,8 @@ type machine = {
     categories : string list;
     crafting_speed : float;
     power : power;
+    ingredient_count : int option;
+    size_x : float;
+    size_y : float;
+    (* pumps_fluid : (string * float) option; *)
 } [@@deriving sexp]

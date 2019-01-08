@@ -1,6 +1,9 @@
 (executables
   (
     (names (main))
-    (libraries (base core_kernel core async async_interactive bignum))
+    (libraries (
+      base core_kernel core async async_interactive bignum
+      glpk
+      ))
     (preprocess (pps (ppx_sexp_conv ppx_jane)))
 ))

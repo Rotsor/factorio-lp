@@ -72,8 +72,14 @@ let capital : t -> Value.t =
             utilization = _;
         } -> (Value.of_list [1.0, machine]))
 
-let trivial ~recipe ~machine ?(inserters = 1., 1.) ?(land_ = 5. * 5.) () =
+let trivial ~recipe ~machine ?(inserters = 1., 1.) 
+    ?land_
+     () =
+     let mach = Game_data.lookup_machine machine in
+     let len = Float.sqrt (mach.size_x * mach.size_y) in
+     let land_ = Option.value land_ ~default:(mach.size_x * (mach.size_y + 4.)) in
     [ 1., Recipe { machine; recipe; utilization = 1.0 };
         land_, Passive (Item_name.of_string "landfill-sand-3");
         fst inserters, Inserter { utilization = snd inserters };
+        len, Free_output (Item_name.of_string "building-size", -1.0);
     ]

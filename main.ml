@@ -81,7 +81,7 @@ open Async
 let rec binary_search ~f a b =
     let c = (a + b) / 2. in
     if Float.(<) (b - a) 1e-5 then
-        c
+        (a, b)
     else
         if f c then
         binary_search ~f a c
@@ -90,6 +90,19 @@ let rec binary_search ~f a b =
 
 
 module Lazy_vector = Lazy_vector.Make(String)
+
+let trivial_blueprints : (string * Blueprint.V1.t) list =
+    List.bind Game_data.recipes ~f:(fun recipe ->
+        List.filter_map Game_data.machines ~f:(fun machine ->
+            if List.mem machine.categories ~equal:Category.equal recipe.category
+            then
+                Some (
+                    (Recipe_name.to_string recipe.name ^ "@" ^ Item_name.to_string machine.name), 
+                    Blueprint.trivial ~recipe:recipe.name ~machine:machine.name ())
+            else None
+        ))
+
+
 
 let print_report c =
     let elimination_order =
@@ -137,12 +150,12 @@ let print_report c =
         sign, (equation, solved)
     in
     let growth_per_hour =
-        binary_search ~f:(fun growth -> 
+        fst (binary_search ~f:(fun growth -> 
             match (solve growth) with
             | `Positive, _ -> false
             | `Negative, _ -> true
             | `Mixed, (equation, solution) -> raise_s [%sexp "Mixed", (equation : Solver.equation), (solution : Solver.equation list)]
-        ) 0.0 1.0
+        ) 0.0 1.0)
     in
     printf "growth rate: %.4f\n" growth_per_hour;
     let solution, equations = snd (solve (growth_per_hour *. 0.99)) in
@@ -153,7 +166,7 @@ let print_report c =
         | [] -> raise_s [%sexp "no electricity recipe?"]
         | _ :: _ :: _ -> raise_s [%sexp "multiple electricity recipes?"]
     in
-    let () = 
+    let prices = 
         let recipes_to_map = (fun (what, how_much) ->
                 (what, Lazy_vector.to_map how_much)
             )
@@ -161,17 +174,47 @@ let print_report c =
         let solution = recipes_to_map solution in
         List.map equations ~f:recipes_to_map
         |>
-        List.iter ~f:(fun ((what, _) as eqn) ->
+        List.map ~f:(fun ((what, _) as eqn) ->
             let get (_, how_much) =
                 Option.value ~default:Rat.zero (Map.find how_much electricity_recipe_name)
+            in
+            let price = 
+                Rat.to_float (Rat.(/) 
+                    (get eqn)
+                    (get solution))
             in
             printf
                 !"%60s: %12.3f\n"
                     (Sexp.to_string ([%sexp  (what : Rat.t Item_name.Map.t)]))
-                    (Rat.to_float (Rat.(/) 
-                        (get eqn)
-                        (get solution)))
+                    price;
+            (what, price)
         )
+        |> List.filter_map ~f:(fun (what, price) ->
+            match Map.to_alist what with
+            | [ (item, amount) ] -> 
+                assert (Rat.(=) amount Rat.one);
+                Some (item, price)
+            | _ -> None)
+        |> Item_name.Map.of_alist_exn
+    in
+    let basket_price (basket : Value.t) : float option =
+        with_return (fun { return } -> 
+            Some (Value.utility basket ~item_price:(fun item -> match Map.find prices item with
+                | None -> return None
+                | Some x -> x)))
+    in
+    let () =
+        List.filter_map trivial_blueprints 
+            ~f:(fun (name, x) ->
+                let open Option.Let_syntax in
+                let%bind output = basket_price (Blueprint.output x) in
+                let%map capital = basket_price (Blueprint.capital x) in
+                name, output, capital, (output / capital)
+            )
+        |> List.sort ~compare:(Comparable.lift Float.compare ~f:(fun (_, _, _, p) -> p))
+        |> List.iter ~f:(fun (name, output, capital, payback) ->
+            printf "%60s %10.3f %10.1f %6.2f\n" name output capital (payback * 3600.)
+         )
     in
     ()
 (*    let m = Map.merge net gross ~f:(fun ~key:_ -> function
@@ -184,17 +227,6 @@ let print_report c =
         printf "%25s: %10.3f %10.3f (%06.2f%%)\n" (Item_name.to_string k) gross net (net / gross * 100.)
     ); *)
 ;;
-
-let trivial_blueprints : (string * Blueprint.V1.t) list =
-    List.bind Game_data.recipes ~f:(fun recipe ->
-        List.filter_map Game_data.machines ~f:(fun machine ->
-            if List.mem machine.categories ~equal:Category.equal recipe.category
-            then
-                Some (
-                    (Recipe_name.to_string recipe.name ^ "@" ^ Item_name.to_string machine.name), 
-                    Blueprint.trivial ~recipe:recipe.name ~machine:machine.name ())
-            else None
-        ))
 
 let can_produce ~have ~recipe_output =
     Map.merge have recipe_output ~f:(fun ~key:_ -> function
@@ -213,16 +245,42 @@ let run_competition () = Exchange.run_competition (
         let capital = Blueprint.capital x in
         { Exchange.Contestant. name; output; capital }))
 
-let default_machine category = 
+let recipe_category recipe = Game_data.lookup_recipe recipe |> fun recipe -> recipe.Recipe.category
+
+let available_machines recipe_name =
+    let recipe = Game_data.lookup_recipe recipe_name in
+    let ingredient_count =
+        List.length recipe.inputs
+    in    
+    List.filter Game_data.machines ~f:(fun m -> 
+        List.exists m.categories ~f:(Category.(=) recipe.Recipe.category)
+        && ((match m.ingredient_count with
+        | None -> true
+        | Some limit ->
+            Int.(>=) limit ingredient_count
+        ) || 
+        (
+            (* hack: allow "handcrafting" of machines by making them constructible in grey factories *)
+            match recipe.Recipe.outputs with
+            | [ _, item ] ->
+                (match Game_data.lookup_machine item with
+                | exception _ -> false
+                | (_machine : Machine.t) -> true)
+            | _ -> false
+        )
+        )
+        )
+        |> List.map ~f:(fun machine -> machine.name)
+
+let default_machine recipe_name = 
     let machines_first_better =
         [
             "liquifier";
         ]
         |> List.map ~f:(Item_name.of_string)
     in
-    let available_machines = List.filter Game_data.machines ~f:(fun m -> 
-        List.exists m.categories ~f:(Category.(=) category))
-        |> List.map ~f:(fun machine -> machine.name)
+    let available_machines = 
+        available_machines recipe_name
         |> Item_name.Set.of_list
     in
     match List.find machines_first_better ~f:(Set.mem available_machines) with
@@ -232,18 +290,17 @@ let default_machine category =
         | x :: _ -> Some x
         | [] -> None
 
-let autoadd_machine category = 
+let autoadd_machine recipe = 
+    let category = recipe_category recipe in
     if Category.(=) (Category.of_string "angels-converter") category then None
     else
-    default_machine category
-
-let recipe_category recipe = Game_data.lookup_recipe recipe |> fun recipe -> recipe.Recipe.category
+    default_machine recipe
 
 let configuration =
     let trivial ?inserters ?area count recipe machine =
         let recipe = Recipe_name.of_string recipe in
         let machine = if String.(=) machine "" then 
-            (match (default_machine (recipe_category recipe)) with
+            (match (default_machine recipe) with
             | Some machine -> machine
             | None ->
             raise_s [%sexp "no default machine for", (recipe : Recipe_name.t), (recipe_category recipe : Category.t)]) else Item_name.of_string machine in
@@ -306,7 +363,7 @@ let configuration =
         trivial 48. ~inserters:3. "slag-processing-stone" "burner-ore-crusher";
         trivial 96. "dirt-water-separation" "angels-electrolyser";
         trivial (farms / 12.) ~inserters:2. "wood-bricks" "assembling-machine-1";
-        trivial 66. "electrical-MJ" "steam-engine";
+        trivial 66. "electrical-MJ" "steam-engine-2";
         trivial 24. "sb-wood-bricks-charcoal" "stone-furnace";
         trivial 27. ~inserters:0. "chemical-MJ" "free-conversion-machine";
         trivial 6. ~inserters:0. "water-pumpage" "offshore-pump";
@@ -400,10 +457,10 @@ let configuration =
             trivial 1. ~inserters:0. "iron-plate" "stone-furnace";
             trivial 1. ~inserters:0. "copper-plate" "stone-furnace";
             trivial 1. ~inserters:0. "angelsore5-crushed-smelting" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";            
+            trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";
             trivial 1. "steel-plate" "";
         ]
-    | `t2 -> 
+    | `t2 ->
         [
             trivial 1. "molten-iron-smelting-1" "";
             trivial 1. "iron-ore-smelting" "";
@@ -426,38 +483,85 @@ let configuration =
         ]
     )
 
+let all_trivial_blueprints () =
+    List.concat_map Game_data.recipes ~f:(fun recipe ->
+        List.map (available_machines recipe.name)
+        ~f:(fun machine ->
+            ((recipe, machine), (Blueprint.trivial
+                ?inserters:None
+                ?land_:None
+                ~recipe:recipe.name
+                ~machine
+                ())))
+    )
+
+let recipes growth =
+    (List.filter_map (all_trivial_blueprints ()) ~f:(fun ((recipe, machine), blueprint) ->
+            let recipe = recipe.name in
+            if
+                List.exists [
+                    (* "tree-arboretum-1" *)
+                    (* "swamp-5"; "desert-5"; "temperate-4";"temperate-5"; "desert-4"; "desert-3";
+                    "bob-rubber"; "nutrients-refining-3"; "desert-tree-arboretum-1"; *)
+                ] ~f:(fun s -> Recipe_name.(=) recipe (Recipe_name.of_string s))
+            then None
+            else
+            Some (let name = Recipe_name.to_string recipe ^ "@" ^ Item_name.to_string machine in
+                name, (Map.filter 
+                    ~f:(fun x -> Float.abs x > 1e-13)
+                    (Value.(+) (Value.scale (Blueprint.capital blueprint) (-growth/(3600.))) (Blueprint.output blueprint))))
+        ) @
+        [
+            "free-swamp-garden", Item_name.Map.singleton (Item_name.of_string "swamp-garden") 1.0;
+            "free-desert-garden", Item_name.Map.singleton (Item_name.of_string "desert-garden") 1.0;
+            "free-temperate-garden", Item_name.Map.singleton (Item_name.of_string "temperate-garden") 1.0;
+            "steam-conversion", 
+                Item_name.Map.of_alist_exn [
+                    (Item_name.of_string "steam"), 1.0;
+                    (Item_name.of_string "electrical-MJ"), -(150. * 200e-6);
+                    ];
+            "free-desert-tree", Item_name.Map.singleton (Item_name.of_string "desert-tree") 1.0;
+            "free-viscous-water", Item_name.Map.singleton (Item_name.of_string "water-viscous-mud") 100.0;
+            "big-bottle", 
+                Item_name.Map.of_alist_exn [
+                    (Item_name.of_string "big-bottle"), 1.0;
+                    (Item_name.of_string "high-tech-science-pack"), -1.0;
+                    (Item_name.of_string "science-pack-1"), -1.0;
+                    (Item_name.of_string "science-pack-2"), -1.0;
+                    (Item_name.of_string "science-pack-3"), -1.0;
+                    (Item_name.of_string "productivity-module-4"), -0.1;
+                    ];
+        ])
+
+let borism () =
+    Lp.design_optimal_factory ~goal_item:(Item_name.of_string "big-bottle") (recipes 0.)
+
 let improve_configuration_hardcoded () =
-    let c = configuration in
-    let unique_producer_recipes =
-        List.concat_map Game_data.recipes ~f:(fun recipe ->
-            List.map recipe.outputs ~f:(fun (_amt, name) -> name, recipe.name))
-        |> Item_name.Map.of_alist_multi
-        |> Map.filter_mapi ~f:(fun ~key:_ ~data:recipes ->
-            match recipes with
-            | [] | _ :: _ :: _ -> None
-            | [ recipe ] ->
-                Option.map (autoadd_machine (recipe_category recipe))
-                ~f:(fun machine ->
-                    (recipe, (Blueprint.trivial
-                        ?inserters:None
-                        ?land_:None
-                        ~recipe
-                        ~machine
-                        ())))
-        )
-        |> Map.filteri ~f:(fun ~key ~data:_ ->
-            let already_produced =
-                List.exists c ~f:(fun c ->
-                    List.exists (Map.to_alist (Blueprint.output c.blueprint)) ~f:(fun (k, v) ->
-                        v > 0. && Item_name.(=) k key
-                    )
-                )
-            in
-            not already_produced
-        )
-        |> Map.to_alist
+    Lp.design_optimal_factory ~goal_item:(Item_name.of_string "electrical-MJ") (recipes 0.1);
+    (* let _ = assert false in *)
+    let growth_via_prices = snd (
+        binary_search 0.05 3.0 ~f:(fun growth ->
+            match Lp.Item_prices.find (
+                recipes growth
+            ) with
+            | `Too_easy -> false
+            | `Ok _ -> true
+            ))
     in
-    print_report (c @ List.map ~f:(fun (name, (recipe, blueprint)) ->
+    (* let item_prices = 
+        Lp.find_item_prices (recipes growth_via_prices)
+    in *)
+    let design_factory = Lp.design_optimal_factory ~goal_item:(Item_name.of_string "electrical-MJ") in
+    let growth_via_design = 
+        fst (binary_search 0.05 3.0 ~f:(fun growth ->
+            match design_factory (recipes growth) with
+            | exception _ -> true
+            | _ -> false
+        ))
+    in
+    printf "growth: %f-%f\n%!" growth_via_design growth_via_prices;
+    ()
+    (* print_report (c @ List.map ~f:(fun (name, (recipe, blueprint)) ->
         {
             Configuration.V1.
             blueprint;
@@ -465,7 +569,7 @@ let improve_configuration_hardcoded () =
             quantity = 0.0;
             name = "auto: " ^ (Recipe_name.to_string recipe) ^ " for " ^ (Item_name.to_string name) ;
         }
-    ) unique_producer_recipes)
+    ) unique_producer_recipes); *)
 ;;
 
 let rec improve_configuration () =

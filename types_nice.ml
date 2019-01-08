@@ -30,38 +30,49 @@ module Machine = struct
         name : Item_name.t;
         categories : Category.t list;
         crafting_speed : float;
+        ingredient_count : int option;
         power : power;
+        size_x : float;
+        size_y : float;
     } [@@deriving sexp]
 end
 module Game_data = struct
 
-    let machines = List.map Generated.machines ~f:(fun {name; categories; crafting_speed; power} ->
+    let machines = List.map Generated.machines ~f:(fun {name; categories; crafting_speed; power; ingredient_count; size_x; size_y } ->
         let name = Item_name.of_string name in
         let categories = List.map ~f:Category.of_string categories in
-        { Machine.name; categories; crafting_speed; power }) @ [
+        { Machine.name; categories; crafting_speed; power; ingredient_count; size_x; size_y }) @ [
             {
                     name = Item_name.of_string "offshore-pump";
                     categories = [Category.of_string "offshore-pumpage"];
                     crafting_speed = 1.;
                     power = Chemical { power = 0. };
+                    ingredient_count = None;
+                    size_x = 2.; size_y = 2.;
             };
             {
                 name = Item_name.of_string "steam-engine";
                 categories = [Category.of_string "electricity"];
                 crafting_speed = 0.9;
                 power = Chemical { power = 0.9/.0.5 *. 1e6/.60. };
+                ingredient_count = None;
+                size_x = 5.; size_y = 2.;
             };
             {
                 name = Item_name.of_string "steam-engine-2";
                 categories = [Category.of_string "electricity"];
                 crafting_speed = 1.8;
                 power = Chemical { power = 1.8/.0.6 *. 1e6/.60. };
+                ingredient_count = None;
+                size_x = 5.; size_y = 2.;
             };
             {
                 name = Item_name.of_string "free-conversion-machine";
                 categories = [Category.of_string "free-conversion"];
                 crafting_speed = 1.;
                 power = Chemical { power = 0. };
+                ingredient_count = None;
+                size_x = 0.; size_y = 0.;
             };
         ]
 
