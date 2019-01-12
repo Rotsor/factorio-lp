@@ -52,12 +52,16 @@ end = struct
                 (Array.map item_array ~f:(fun i -> 
                     if (Item_name.(=) i Item_name.electrical_mj)
                     then (1., 1.)
-                    else 
+                    else
                     if Item_name.(=) (Item_name.of_string "building-size") i
                     then (0.0, 0.0)
-                    else (-1., 10000000.)
+                    else 
+                    if (Item_name.(=) i (Item_name.of_string "solid-lime"))
+                    then (-0.5, 10000.)
+                    else (-0.0, 1000000.)
                     ))
         in
+        G.set_message_level lp 0;
         G.scale_problem lp;
         G.use_presolver lp true;
         match G.simplex lp with
@@ -115,7 +119,11 @@ let design_optimal_factory ~goal_item (recipes_list : (String.t * Value.t) list)
         |> List.map ~f:(fun (k, expression) ->
             let constraint_ = 
                 if Item_name.(=) (Item_name.of_string "building-size") k
-                then (-(1000.00/0.3072), Float.infinity)
+                then (-1000.00, -0.0)
+                else
+                let bad_items = ["solid-lime"] in
+                if List.exists bad_items ~f:(fun bad -> Item_name.(=) (Item_name.of_string bad) k)
+                then (-1000., 0.00)
                 else
                 if Item_name.(=) k goal_item
                 then (-0.00, Float.infinity)
@@ -124,23 +132,18 @@ let design_optimal_factory ~goal_item (recipes_list : (String.t * Value.t) list)
             (expression, constraint_)
         )
     in
-    Core.printf "%s\n" (Sexp.to_string [%sexp [%here]]);
     let lp = 
         G.make_problem Maximize
             (Map.find_exn net_per_item goal_item)
             (Array.of_list (List.map ~f:fst constraints))
             (Array.of_list (List.map ~f:snd constraints))
-            (Array.map recipes ~f:(fun _ -> (0., 100./0.39)))
+            (Array.map recipes ~f:(fun _ -> (0., Float.infinity)))
     in
-    Core.printf "%s\n" (Sexp.to_string [%sexp [%here]]);
+    (*G.set_message_level lp 0;*)
     G.scale_problem lp;
-    Core.printf "%s\n" (Sexp.to_string [%sexp [%here]]);
     G.use_presolver lp true;
-    Core.printf "%s\n" (Sexp.to_string [%sexp [%here]]);
     G.simplex lp;
-    Core.printf "%s\n" (Sexp.to_string [%sexp [%here]]);
     let prim = G.get_col_primals lp in
-    Core.printf "%s\n" (Sexp.to_string [%sexp [%here]]);
     let z = (G.get_obj_val lp) in
     (if z <= 1e-8 then raise_s [%sexp "too little output"]);
     Core.Printf.printf "Z: %g\n%!" z;

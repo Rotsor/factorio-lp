@@ -512,9 +512,9 @@ let recipes growth =
                     (Value.(+) (Value.scale (Blueprint.capital blueprint) (-growth/(3600.))) (Blueprint.output blueprint))))
         ) @
         [
-            "free-swamp-garden", Item_name.Map.singleton (Item_name.of_string "swamp-garden") 1.0;
+            (*"free-swamp-garden", Item_name.Map.singleton (Item_name.of_string "swamp-garden") 1.0;
             "free-desert-garden", Item_name.Map.singleton (Item_name.of_string "desert-garden") 1.0;
-            "free-temperate-garden", Item_name.Map.singleton (Item_name.of_string "temperate-garden") 1.0;
+            "free-temperate-garden", Item_name.Map.singleton (Item_name.of_string "temperate-garden") 1.0; *)
             "steam-conversion", 
                 Item_name.Map.of_alist_exn [
                     (Item_name.of_string "steam"), 1.0;
@@ -537,10 +537,9 @@ let borism () =
     Lp.design_optimal_factory ~goal_item:(Item_name.of_string "big-bottle") (recipes 0.)
 
 let improve_configuration_hardcoded () =
-    Lp.design_optimal_factory ~goal_item:(Item_name.of_string "electrical-MJ") (recipes 0.1);
     (* let _ = assert false in *)
     let growth_via_prices = snd (
-        binary_search 0.05 3.0 ~f:(fun growth ->
+        binary_search 0.05 4.0 ~f:(fun growth ->
             match Lp.Item_prices.find (
                 recipes growth
             ) with
@@ -548,18 +547,23 @@ let improve_configuration_hardcoded () =
             | `Ok _ -> true
             ))
     in
-    (* let item_prices = 
-        Lp.find_item_prices (recipes growth_via_prices)
-    in *)
-    let design_factory = Lp.design_optimal_factory ~goal_item:(Item_name.of_string "electrical-MJ") in
+    let () = 
+        match Lp.Item_prices.find (recipes growth_via_prices) with
+        | `Too_easy -> assert false
+        | `Ok solution ->
+            Lp.Item_prices.report solution
+    in
+    (* let _ = assert false in *)
+    let design_factory = Lp.design_optimal_factory ~goal_item:(Item_name.of_string "desert-garden") in
     let growth_via_design = 
-        fst (binary_search 0.05 3.0 ~f:(fun growth ->
+        fst (binary_search 0.05 4.0 ~f:(fun growth ->
+            Core.printf "attempting: %f\n%!" growth;
             match design_factory (recipes growth) with
             | exception _ -> true
             | _ -> false
         ))
     in
-    printf "growth: %f-%f\n%!" growth_via_design growth_via_prices;
+    Core.printf "growth: %f-%f\n%!" growth_via_design growth_via_prices;
     ()
     (* print_report (c @ List.map ~f:(fun (name, (recipe, blueprint)) ->
         {

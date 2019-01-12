@@ -109,9 +109,16 @@ module Game_data = struct
             category = Category.of_string "electricity";
         };
         {
-            name = Recipe_name.of_string "chemical-MJ";
+            name = Recipe_name.of_string "chemical-MJ-charcoal";
             inputs = [1.0, Item_name.of_string "charcoal"];
             outputs = [5., Item_name.chemical_mj];
+            effort = 1.;
+            category = Category.of_string "free-conversion";
+        };
+        {
+            name = Recipe_name.of_string "chemical-MJ-pellet-charcoal";
+            inputs = [1.0, Item_name.of_string "pellet-charcoal"];
+            outputs = [30., Item_name.chemical_mj];
             effort = 1.;
             category = Category.of_string "free-conversion";
         };
