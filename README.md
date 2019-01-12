@@ -20,7 +20,7 @@ There are two ways to do that:
 ## b) Nix
 
 - Install [nix](https://nixos.org/nix/)
-- Run [nix-shell]
+- Run `nix-shell`
 
 # 3. Use
 
