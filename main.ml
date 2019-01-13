@@ -1,5 +1,6 @@
 open! Base
 open! Core
+module GG = Game_data
 open! Types_nice
 
 open Common
@@ -596,8 +597,10 @@ let () =
     );
     "improve-hardcoded", cmd_async (fun () ->
         improve_configuration_hardcoded ();
-        return ()
-    )
+        return ());
+    "pp-game-data", cmd_async (fun () ->
+        GG.pp ~path:"/home/rotsor/.factorio/script-output/game-data.sexp"
+      );
 (*
         "recipe-summary", Command.basic ~summary:"" (Command.Param.return (fun () ->
 
