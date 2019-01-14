@@ -297,193 +297,6 @@ let autoadd_machine recipe =
     else
     default_machine recipe
 
-let configuration =
-    let trivial ?inserters ?area count recipe machine =
-        let recipe = Recipe_name.of_string recipe in
-        let machine = if String.(=) machine "" then 
-            (match (default_machine recipe) with
-            | Some machine -> machine
-            | None ->
-            raise_s [%sexp "no default machine for", (recipe : Recipe_name.t), (recipe_category recipe : Category.t)]) else Item_name.of_string machine in
-        { 
-            Configuration.V1.
-            blueprint = Blueprint.trivial
-                ?inserters:(Option.map inserters ~f:(fun cnt -> (cnt, 1.0)))
-                ?land_:area
-                ~recipe
-                ~machine
-                ();
-            name = Recipe_name.to_string recipe ^ "@" ^ Item_name.to_string machine;
-            quality = Expanding;
-            quantity = count;
-        }
-    in
-    let stockpile ~quantity item =
-        let item = Item_name.of_string item in
-        {
-            Configuration.V1.
-            blueprint = [ 
-                1.0, Free_output (item, -. quantity);
-            ];
-            name = (if quantity > 0. then "stockpile: " else "get: ") ^ (Item_name.to_string item);
-            quality = Expanding;
-            quantity = 1.0;
-        }
-    in
-    let free item = stockpile ~quantity:(-1.) item in
-    let _ = free in
-    let stockpile item = stockpile ~quantity:(1.) item in
-    let farms = 66. in
-    let power_tech = `t1 in
-    (match power_tech with 
-    | `t0 -> [ 
-        trivial (12. * 0.533333333) ~inserters:0. "water-mineralized" "liquifier";
-    ]
-    | `t1 -> [
-        trivial 1. "tree-arboretum-1" "";
-        trivial 1. "angels-bio-void-algae-brown" "";
-        trivial 1. "cellulose-fiber-raw-wood" "";
-        trivial 1. "tree-generator-1" "";
-        trivial 1. "solid-soil" "";
-        free "desert-tree";
-        trivial 1. ~inserters:0. "angels-chemical-void-gas-hydrogen-sulfide" "";
-        trivial 1. ~inserters:0. "angels-water-void-water-saline" "";
-        trivial 1. "washing-1" "";
-        trivial 1. "washing-2" "";
-        trivial 1. "washing-3" "";
-        trivial 1. "washing-4" "";
-        trivial 1. "washing-5" "";
-        free "water-viscous-mud";
-    ]
-    ) @
-    [
-        trivial farms "algae-green" "algae-farm";
-        trivial (farms * 0.8) "cellulose-fiber-algae" "assembling-machine-1";
-        trivial (farms / 2.) "wood-pellets" "assembling-machine-1";
-        trivial 9. ~inserters:0. "carbon-separation-2" "liquifier";
-        trivial 48. ~inserters:3. "slag-processing-stone" "burner-ore-crusher";
-        trivial 96. "dirt-water-separation" "angels-electrolyser";
-        trivial (farms / 12.) ~inserters:2. "wood-bricks" "assembling-machine-1";
-        trivial 66. "electrical-MJ" "steam-engine-2";
-        trivial 24. "sb-wood-bricks-charcoal" "stone-furnace";
-        trivial 27. ~inserters:0. "chemical-MJ" "free-conversion-machine";
-        trivial 6. ~inserters:0. "water-pumpage" "offshore-pump";
-        trivial 6. ~inserters:0. "angels-chemical-void-gas-hydrogen" "angels-flare-stack";
-        trivial 6. ~inserters:0. "angels-chemical-void-gas-oxygen" "angels-flare-stack";
-        trivial (12. * 0.533333333) ~inserters:3. "coke-purification" "liquifier";
-        trivial 1. ~inserters:1. "landfill" "assembling-machine-1";
-    ] @ (match power_tech with
-    | `t0 -> [
-        trivial 1. ~inserters:0. "water-purification" ""; ] 
-    | `t1 -> [])
-    @ [
-        trivial 1. "solder-alginic" "";
-        stockpile "quartz"; (* silicon ore *)
-        stockpile "nickel-ore";
-        stockpile "copper-plate";
-    ] @
-    (* ore processing *)
-    (match `t2 with
-    | `t0 -> 
-        [ 
-            trivial 1. ~inserters:2. "sb-water-mineralized-crystallization" "crystallizer";
-            trivial 1. ~inserters:1. "angelsore3-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore1-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore2-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore4-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore5-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore6-crushed" "burner-ore-crusher";
-        ]
-    | `t1 ->
-        [ 
-            trivial 1. ~inserters:2. "sb-water-mineralized-crystallization" "crystallizer";
-            trivial 1. ~inserters:1. "angelsore3-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore1-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore2-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore4-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore5-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore6-crushed" "burner-ore-crusher";
-            trivial 1. "angelsore1-crushed-processing" "ore-sorting-facility";
-            trivial 1. "angelsore3-crushed-processing" "ore-sorting-facility";
-
-            (* the part of t2 necessary for green circuits *)
-            trivial 1. ~inserters:1. "slag-processing-5" "";
-            trivial 1. ~inserters:1. "slag-processing-6" "";
-            trivial 1. ~inserters:1. "angelsore5-crushed" "burner-ore-crusher"; (* rubyite *)
-            trivial 1. ~inserters:1. "angelsore6-crushed" "burner-ore-crusher"; (* bobmonium *)
-            trivial 1. "angelsore6-crushed-processing" "ore-sorting-facility";
-            trivial 1. "angelsore5-crushed-processing" "ore-sorting-facility";
-            trivial 1. "slag-processing-filtering-1" "";
-            trivial 1. "slag-processing-dissolution" "";
-            trivial 1. "liquid-sulfuric-acid" "";
-            trivial 1. "yellow-waste-water-purification" "";
-            stockpile "sulfur";
-            trivial 1. "gas-sulfur-dioxide" "";
-            trivial 1. "water-synthesis" "";
-            trivial 1. "filter-coal" "";
-        ]
-    | `t2 ->
-        [
-            trivial 1. ~inserters:1. "slag-processing-1" ""; (* crystallization to saphirite *)
-            trivial 1. ~inserters:1. "slag-processing-5" "";
-            trivial 1. ~inserters:1. "slag-processing-6" "";
-            trivial 1. ~inserters:1. "angelsore1-crushed" "burner-ore-crusher";
-            trivial 1. ~inserters:1. "angelsore5-crushed" "burner-ore-crusher"; (* rubyite *)
-            trivial 1. ~inserters:1. "angelsore6-crushed" "burner-ore-crusher"; (* bobmonium *)
-            trivial 1. "angelsore1-crushed-processing" "ore-sorting-facility";
-            trivial 1. "angelsore6-crushed-processing" "ore-sorting-facility";
-            trivial 1. "angelsore5-crushed-processing" "ore-sorting-facility";
-            trivial 1. "slag-processing-filtering-1" "";
-            trivial 1. "slag-processing-dissolution" "";
-            trivial 1. "liquid-sulfuric-acid" "";
-            trivial 1. "yellow-waste-water-purification" "";
-            stockpile "sulfur";
-            trivial 1. "gas-sulfur-dioxide" "";
-            trivial 1. "water-synthesis" "";
-            trivial 1. "filter-coal" "";
-        ]
-    ) @
-    (* metallurgy *)
-    (match `t3 with
-    | `t0 -> 
-        [
-            trivial 1. ~inserters:0. "angelsore1-crushed-smelting" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore3-crushed-smelting" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore5-crushed-smelting" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";
-            trivial 1. "steel-plate" "";
-        ]
-    | `t1 ->
-        [
-            trivial 1. ~inserters:0. "iron-plate" "stone-furnace";
-            trivial 1. ~inserters:0. "copper-plate" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore5-crushed-smelting" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";
-            trivial 1. "steel-plate" "";
-        ]
-    | `t2 ->
-        [
-            trivial 1. "molten-iron-smelting-1" "";
-            trivial 1. "iron-ore-smelting" "";
-            trivial 1. "angels-plate-iron" "";
-            trivial 1. ~inserters:0. "copper-plate" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore5-crushed-smelting" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";
-            trivial 1. "steel-plate" "";
-        ]
-    | `t3 ->
-            [
-
-            trivial 1. "molten-iron-smelting-1" "";
-            trivial 1. "iron-ore-smelting" "";
-            trivial 1. "angels-plate-iron" "";
-            trivial 1. ~inserters:0. "copper-plate" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore5-crushed-smelting" "stone-furnace";
-            trivial 1. ~inserters:0. "angelsore6-crushed-smelting" "stone-furnace";                
-            trivial 1. "angels-plate-steel" "";
-        ]
-    )
-
 let all_trivial_blueprints () =
     List.concat_map Game_data.recipes ~f:(fun recipe ->
         List.map (available_machines recipe.name)
@@ -538,7 +351,11 @@ let borism () =
     Lp.design_optimal_factory ~goal_item:(Item_name.of_string "big-bottle") (recipes 0.)
 
 let improve_configuration_hardcoded () =
-    (* let _ = assert false in *)
+  (* let _ = assert false in *)
+  let%map () =
+    Writer.save
+      ~contents:(Sexp.to_string_hum [%sexp (recipes 0.05 : (string * Value.t) list)]) "recipes.sexp"
+  in
     let growth_via_prices = snd (
         binary_search 0.05 4.0 ~f:(fun growth ->
             match Lp.Item_prices.find (
@@ -596,8 +413,7 @@ let () =
         improve_configuration ()
     );
     "improve-hardcoded", cmd_async (fun () ->
-        improve_configuration_hardcoded ();
-        return ());
+        improve_configuration_hardcoded ());
     "pp-game-data", cmd_async (fun () ->
         GG.pp ~path:"/home/rotsor/.factorio/script-output/game-data.sexp"
       );
