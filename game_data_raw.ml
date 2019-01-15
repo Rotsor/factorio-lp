@@ -1,6 +1,12 @@
 open! Core
 
-module Item_name : Identifiable = String
+module Item_name0 : Identifiable = String
+  module Item_name = struct
+    include Item_name0
+    
+    let electrical_mj = of_string "electrical-MJ"
+    let chemical_mj = of_string "chemical-MJ"
+end
 module Entity_name : Identifiable = String
 module Recipe_name : Identifiable = String
 module Crafting_category : Identifiable = String
@@ -42,11 +48,19 @@ module Module_effects = struct
   } [@@deriving sexp]
 end
 
+module Joules : sig
+  type t [@@deriving sexp]
+  val to_mj : t -> float
+end = struct
+  type t = float [@@deriving sexp]
+  let to_mj x = x /. 1000000.
+end
+
 module Item_prototype = struct
   type t = {
-    fuel_value : float;
+    fuel_value : Joules.t;
     place_result : Entity_name.t option;
-    stack_size : float;
+    stack_size : int;
     fuel_category : string option;
     burnt_result : Item_name.t option;
     rocket_launch_products : Product.t list option;
@@ -177,10 +191,18 @@ module Position = struct
 end
 
 module Bounding_box = struct
+
   type t = {
     left_top : Position.t;
     right_bottom : Position.t;
   } [@@deriving sexp]
+
+  let diff ~f t = Float.to_int (Float.round_up (f t.right_bottom -. f t.left_top -. 0.05))
+  let height = diff ~f:(fun (p : Position.t) -> p.y)
+  let width = diff ~f:(fun (p : Position.t) -> p.x)
+
+  let area_with_margin t = Float.of_int ((height t + 4) * width t)
+  let weird_metric t = Float.sqrt (Float.of_int (height t * width t))
 end
 
 module True = struct
@@ -202,12 +224,28 @@ module Burner_prototype = struct
   } [@@deriving sexp]
 end
 
+module Joules_per_frame : sig
+  type t [@@deriving sexp]
+  val to_MW : t -> float
+end = struct
+  type t = float [@@deriving sexp]
+  let to_MW x = x *. 60. /. 1000000.
+end
+
 module Electrical_prototype = struct
   type t = {
-    drain : float;
-    output_flow_limit : float;
-    input_flow_limit : float;
+    drain : Joules_per_frame.t;
+    output_flow_limit : Joules_per_frame.t;
+    input_flow_limit : Joules_per_frame.t;
   } [@@deriving sexp]
+end
+
+module Units_per_frame : sig
+  type t [@@deriving sexp]
+  val per_sec : t -> float
+end = struct
+  type t = float [@@deriving sexp]
+  let per_sec t = t *. 60.
 end
 
 module Entity_prototype = struct
@@ -221,15 +259,15 @@ module Entity_prototype = struct
     crafting_categories : True.t Crafting_category.Map.t option;
     resource_categories : True.t String.Map.t option;
     burner_prototype : Burner_prototype.t option;
-    max_energy_usage : float option;
+    max_energy_usage : Joules_per_frame.t option;
     electrical_prototype : Electrical_prototype.t option;
-    generator_fluid_usage_per_tick : float option;
+    generator_fluid_usage_per_tick : Units_per_frame.t option;
     generator_maximum_temperature : float option;
     generator_effectivity : float option;
-    solar_panel_production : float option;
+    solar_panel_production : Joules_per_frame.t option;
     beacon_distribution_effectivity : float option;
     pumping_fluid : Item_name.t option;
-    pumping_speed : float option;
+    pumping_speed : Units_per_frame.t option;
     boiler_target_temperature : float option;
   } [@@deriving sexp]
 end
@@ -240,7 +278,7 @@ module Fluid_prototype = struct
     max_temperature : float;
     heat_capacity : float; (* J at max temperature *)
     gas_temperature : float;
-    fuel_value : float;
+    fuel_value : Joules.t;
   } [@@deriving sexp]
 end
 
@@ -250,7 +288,6 @@ module Recipe = struct
     ingredients : Ingredient.t list;
     products : Product.t list;
     effort : float;
-    emissions_multiplier : float;
     enabled : bool;
   } [@@deriving sexp]
 end

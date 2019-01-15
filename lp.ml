@@ -30,7 +30,7 @@ end = struct
                 List.mapi (Array.to_list a) ~f:(fun i v -> (v, i))
                 |> Item_name.Map.of_alist_exn
             in
-            (a, Map.find_exn m)
+            (a, map_find_exn m)
         in
         let constraints =
             List.map recipes_list ~f:(fun (_r, v) ->
@@ -57,7 +57,7 @@ end = struct
                     then (0.0, 0.0)
                     else 
                     if (Item_name.(=) i (Item_name.of_string "solid-lime"))
-                    then (-0.5, 10000.)
+                    then (-0.0, 10000.)
                     else (-0.0, 1000000.)
                     ))
         in
@@ -134,7 +134,7 @@ let design_optimal_factory ~goal_item (recipes_list : (String.t * Value.t) list)
     in
     let lp = 
         G.make_problem Maximize
-            (Map.find_exn net_per_item goal_item)
+            (map_find_exn net_per_item goal_item)
             (Array.of_list (List.map ~f:fst constraints))
             (Array.of_list (List.map ~f:snd constraints))
             (Array.map recipes ~f:(fun _ -> (0., Float.infinity)))

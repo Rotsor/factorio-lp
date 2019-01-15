@@ -5,15 +5,10 @@ type power = Types.power =
     | Electrical of { power : float; drain : float }
 [@@deriving sexp]
 
-module Item_name0 : Identifiable = String
-module Item_name = struct
-    include Item_name0
-    
-    let electrical_mj = of_string "electrical-MJ"
-    let chemical_mj = of_string "chemical-MJ"
-end
-module Recipe_name : Identifiable = String
-module Category : Identifiable = String
+module Item_name = Game_data_raw.Item_name
+
+module Recipe_name = Game_data_raw.Recipe_name
+module Category = Game_data_raw.Crafting_category
 
 module Recipe = struct
     type t = {

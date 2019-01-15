@@ -64,6 +64,25 @@ module Ingredient = struct
     name : Item_name.t;
     amount : float;
   } [@@deriving sexp]
+
+  let of_raw ({
+      type_;
+      name;
+      amount;
+      minimum_temperature;
+      maximum_temperature;
+    } : Game_data_raw.Ingredient.t) =
+    { type_ =
+        (match type_, (minimum_temperature, maximum_temperature) with
+         | `fluid, _ ->
+           `fluid { minimum_temperature; maximum_temperature }
+         | `item, (Some _, _ | _, Some _) ->
+           raise_s [%sexp "min or max temperature specified for an item"]
+         | `item, (None, None) ->
+           `item);
+      name;
+      amount;
+    }
 end
 
 module Effect = struct
@@ -103,7 +122,7 @@ module Item_prototype = struct
   type t = {
     as_fuel : As_fuel.t option;
     place_result : Entity_name.t option;
-    stack_size : float;
+    stack_size : int;
     rocket_launch_products : Product.t list option;
     as_module : As_module.t option;
   } [@@deriving sexp]
@@ -121,7 +140,7 @@ module Item_prototype = struct
     module_limitations
   } : Game_data_raw.Item_prototype.t) =
     let as_fuel =
-      match (fuel_value, fuel_category, burnt_result) with
+      match (Game_data_raw.Joules.to_mj fuel_value, fuel_category, burnt_result) with
       | 0.0, None, None -> None
       | fuel_value, Some category, burnt_result ->
         Some { As_fuel.category; fuel_value; burnt_result }
@@ -178,7 +197,7 @@ module Entity_prototype = struct
     | Burning *)
 
   type kind =
-    | Assembler of { (* includes furnaces *)
+    | Machine of { (* includes furnaces *)
         module_inventory_size : int;
         ingredient_count : int;
         fixed_recipe : Recipe_name.t option;
@@ -186,6 +205,10 @@ module Entity_prototype = struct
         crafting_categories : Crafting_category.Set.t;
         max_energy_usage : float;
         power_source : [`chemical | `electrical];
+      }
+    | Offshore_pump of {
+        pumping_fluid : Item_name.t;
+        pumping_speed : float;
       }
 (*    | Boiler of {
         boiler_target_temperature : float option;
@@ -204,11 +227,7 @@ module Entity_prototype = struct
       }
     | Inserter of {
         drain : float;
-      }
-    | Offshore_pump of {
-        pumping_fluid : Item_name.t;
-        pumping_speed : float;
-      } *)
+      }*)
   [@@deriving sexp]
 
   type t = {
@@ -217,7 +236,7 @@ module Entity_prototype = struct
     kind : kind;
   }
      [@@deriving sexp] 
-  
+
      let of_raw (
          {
            type_;
@@ -235,25 +254,25 @@ module Entity_prototype = struct
            generator_maximum_temperature = _;
            solar_panel_production = _;
            beacon_distribution_effectivity = _;
-           pumping_fluid = _;
-           pumping_speed = _;
+           pumping_fluid;
+           pumping_speed;
            boiler_target_temperature = _;
            generator_effectivity = _;
-         }
+         } as ep
          : Game_data_raw.Entity_prototype.t) : t option =
        ignore resource_categories;
        ignore burner_prototype;
        ignore burner_prototype;
        let drain = match electrical_prototype with
          | None -> 0.0
-         | Some { drain; output_flow_limit = _; input_flow_limit = _ } -> drain
+         | Some { drain; output_flow_limit = _; input_flow_limit = _ } -> Game_data_raw.Joules_per_frame.to_MW drain
        in
        let kind =
          match (type_, module_inventory_size, ingredient_count, fixed_recipe, crafting_speed, crafting_categories) with
          | ((Assembling_machine | Furnace | Rocket_silo),
             Some module_inventory_size,
             Some ingredient_count, fixed_recipe, Some crafting_speed, Some crafting_categories) ->
-           Some (Assembler {
+           Some (Machine {
                module_inventory_size;
                ingredient_count;
                fixed_recipe;
@@ -261,7 +280,7 @@ module Entity_prototype = struct
                crafting_categories = Set.of_map_keys crafting_categories;
                max_energy_usage = (match max_energy_usage with
                    | None -> raise_s [%sexp "no energy usage?"]
-                   | Some x -> x);
+                   | Some x -> Game_data_raw.Joules_per_frame.to_MW x);
                power_source = (match electrical_prototype, burner_prototype with
                    | None, Some _ -> `chemical
                    | Some _, None -> `electrical
@@ -270,8 +289,16 @@ module Entity_prototype = struct
              })
          | _ ->
            (match type_ with
+            | (Assembling_machine | Furnace | Rocket_silo)
+              ->
+              raise_s [%sexp "failed to convert", (ep : Game_data_raw.Entity_prototype.t) ]
+            | Offshore_pump ->
+              (match pumping_fluid, pumping_speed with
+               | Some pumping_fluid, Some pumping_speed ->
+                 Some (Offshore_pump { pumping_fluid; pumping_speed = Game_data_raw.Units_per_frame.per_sec pumping_speed })
+               | _ -> raise_s [%sexp "failed to convert an offshore pump", (ep : Game_data_raw.Entity_prototype.t) ]
+              )
             | Corpse
-            | Assembling_machine
             | Container
             | Logistic_container
             | Lamp
@@ -312,8 +339,6 @@ module Entity_prototype = struct
             | Solar_panel
             | Accumulator
             | Mining_drill
-            | Offshore_pump
-            | Furnace
             | Beacon
             | Lab
             | Land_mine
@@ -325,7 +350,6 @@ module Entity_prototype = struct
             | Fluid_turret
             | Artillery_turret
             | Radar
-            | Rocket_silo
             | Player_port
             | Infinity_container
             | Simple_entity_with_force
@@ -372,22 +396,61 @@ module Entity_prototype = struct
 end
 
 module Fluid_prototype = struct
-  type t = Game_data_raw.Fluid_prototype.t = {
+  type t = {
     default_temperature : float;
     max_temperature : float;
     heat_capacity : float; (* J at max temperature *)
     gas_temperature : float;
     fuel_value : float;
   } [@@deriving sexp]
+
+  let of_raw ({
+      default_temperature;
+      max_temperature;
+      heat_capacity;
+      gas_temperature;
+      fuel_value;
+    } : Game_data_raw.Fluid_prototype.t) =
+    {
+      default_temperature;
+      max_temperature;
+      heat_capacity;
+      gas_temperature;
+      fuel_value = Game_data_raw.Joules.to_mj fuel_value;
+    }
 end
 
-module Recipe = Game_data_raw.Recipe
+module Recipe = struct
+  type t = {
+    category : Crafting_category.t;
+    ingredients : Ingredient.t list;
+    products : Product.t list;
+    effort : float;
+    enabled : bool;
+  } [@@deriving sexp]  
+
+  let of_raw ({
+    category;
+    ingredients;
+    products;
+    effort;
+    enabled;
+  } : Game_data_raw.Recipe.t) = {
+    category;
+    ingredients = List.map ingredients ~f:Ingredient.of_raw;
+    products = List.map products ~f:Product.of_raw;
+    effort;
+    enabled;
+  }
+end
 open Async
 
 type t = {
   items : Item_prototype.t Item_name.Map.t;
   fluids : Fluid_prototype.t Item_name.Map.t;
-  entities : Entity_prototype.t Entity_name.Map.t;
+  accessible_item_names : Item_name.Set.t;
+  accessible_entities : Entity_prototype.t Item_name.Map.t;
+  items_to_place : Item_name.t Entity_name.Map.t;
   recipes : Recipe.t Recipe_name.Map.t;
 } [@@deriving sexp]
 
@@ -399,15 +462,49 @@ let of_raw ({
     entities;
     recipes;
   } : Game_data_raw.t) =
-  { items = Item_name.Map.map ~f:Item_prototype.of_raw items;
-    fluids;
-    entities = Entity_name.Map.filter_map ~f:Entity_prototype.of_raw entities;
-    recipes;
+  let items = Map.map ~f:Item_prototype.of_raw items in
+  let recipes = Map.filter recipes ~f:(fun recipe -> recipe.enabled) in
+  let accessible_item_names =
+    List.concat_map (Map.data recipes) ~f:(fun recipe ->
+        List.map recipe.products ~f:(fun product -> product.name)
+      )
+    |> Item_name.Set.of_list
+  in
+  let items_to_place =
+    Map.filter_map items ~f:(fun item -> item.place_result)
+    |> Map.to_alist
+    |> List.map ~f:(fun (item_name, entity) -> entity, item_name)
+    |> Entity_name.Map.of_alist_exn
+  in
+  { items;
+    fluids = Map.map ~f:Fluid_prototype.of_raw fluids;
+    items_to_place;
+    accessible_item_names;
+    accessible_entities =
+      (Map.filter_map ~f:Entity_prototype.of_raw entities
+      |> Map.to_alist
+      |> List.filter_map ~f:(fun (entity_name, entity) ->
+          match Map.find items_to_place entity_name with
+          | Some k ->
+            if Set.mem accessible_item_names k then
+              Some (k, entity)
+            else None
+          | None -> None)
+      |> Item_name.Map.of_alist_exn);
+    recipes = Map.map recipes ~f:Recipe.of_raw;
   }
   
+
+let entity_by_item_name t item_name =
+  Map.find t.accessible_entities item_name
 
 let pp ~path =
   Reader.load_sexp_exn path [%of_sexp: Game_data_raw.t]
   >>= fun res ->
   print_s [%sexp (of_raw res : t)];
   return ()
+
+let load ~path =
+  Reader.load_sexp_exn path [%of_sexp: Game_data_raw.t]
+  >>= fun res ->
+  return (of_raw res)

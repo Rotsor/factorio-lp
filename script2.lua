@@ -28,6 +28,16 @@ function sexp_table(d, f5)
   return { sexp_string = table.concat(t,"") }
 end
 
+function sexp_table_multiline(d, f5)
+  local t = { }
+  t[#t+1] = "("
+  for k,v in pairs(d) do
+      t[#t+1] = "\n(" .. atom(k).sexp_string .. " " .. f5(v).sexp_string .. ")"
+  end
+  t[#t+1] = ")"
+  return { sexp_string = table.concat(t,"") }
+end
+
 function sexp_record(d)
   return sexp_table(d, function(v) return v end)
 end
@@ -126,8 +136,8 @@ end
 
 contents = sexp_record({
   items =
-    sexp_table(game.item_prototypes, function (v)
-      return break_line(sexp_record({
+    sexp_table_multiline(game.item_prototypes, function (v)
+      return sexp_record({
         fuel_value = atom(v.fuel_value),
         place_result = opt(sexp_name)(v.place_result),
         stack_size = atom(v.stack_size),
@@ -138,21 +148,21 @@ contents = sexp_record({
         module_category = opt(atom)(v.category),
         module_tier = opt(atom)(v.tier),
         module_limitations = opt(sexp_array_c(atom))(v.limitations)
-      }))
+      })
     end),
   fluids =
-    sexp_table(game.fluid_prototypes, function(v)
-      return break_line(sexp_record({
+    sexp_table_multiline(game.fluid_prototypes, function(v)
+      return sexp_record({
         fuel_value = atom(v.fuel_value),
         default_temperature = atom(v.default_temperature),
         max_temperature = atom(v.max_temperature),
         heat_capacity = atom(v.heat_capacity),
         gas_temperature = atom(v.gas_temperature),
-      }))
+      })
       end),
   entities = 
-    sexp_table(game.entity_prototypes, function(v)
-      return break_line(sexp_record({
+    sexp_table_multiline(game.entity_prototypes, function(v)
+      return sexp_record({
         type_ = atom(v.type),
         collision_box = sexp_bounding_box(v.collision_box),
         module_inventory_size = opt(atom)(v.module_inventory_size),
@@ -177,18 +187,17 @@ contents = sexp_record({
         generator_effectivity = opt(atom)(v.effectivity),
         beacon_distribution_effectivity = opt(atom)(v.distribution_effectivity),
         fixed_recipe = opt(atom)(v.fixed_recipe),
-      }))
+      })
       end),
   recipes =
-    sexp_table(game.recipe_prototypes, function(v)
-      return break_line(sexp_record({
+    sexp_table_multiline(game.player.force.recipes, function(v)
+      return sexp_record({
+        enabled = atom(v.enabled),
         category = atom(v.category),
         ingredients = sexp_array(v.ingredients, sexp_ingredient),
         products = sexp_array(v.products, sexp_product),
         effort = atom(v.energy),
-        emissions_multiplier = atom(v.emissions_multiplier),
-        enabled = atom(v.enabled),
-      }))
+      })
       end
     ),
 })
