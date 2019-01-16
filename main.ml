@@ -299,15 +299,17 @@ let explain_lack_of_growth recipes =
   in
   go [Item_name.electrical_mj] (ref Item_name.Set.empty)
 
+let _ = explain_lack_of_growth
+
 let improve_configuration_hardcoded game_data () =
   let recipes = recipes game_data in
-  explain_lack_of_growth recipes;
+  (*  explain_lack_of_growth recipes; *)
   let%map () =
     Writer.save
       ~contents:(Sexp.to_string_hum [%sexp (String.Map.of_alist_exn (assume_growth recipes ~growth:0.05) : Value.t String.Map.t)]) "recipes.sexp"
   in
     let growth_via_prices = snd (
-        binary_search (-0.05) 4.0 ~f:(fun growth ->
+        binary_search 0.0 10.0 ~f:(fun growth ->
             match Lp.Item_prices.find (
                 assume_growth recipes ~growth
             ) with
@@ -323,16 +325,20 @@ let improve_configuration_hardcoded game_data () =
   in
   let design_factory recipes = Lp.Optimal_factory.design ~goal_item:(Item_name.electrical_mj) ~recipes in
   let growth_via_design = 
-    fst (binary_search 0.0 4.0 ~f:(fun growth ->
+    fst (binary_search 0.0 10.0 ~f:(fun growth ->
         Core.printf "attempting: %f\n%!" growth;
         match design_factory (assume_growth recipes ~growth) with
-        | exception exn ->
-          Core.printf !"failed %{sexp: Exn.t}\n%!" exn;
+        | None ->
           true
-        | _ ->
-          Core.printf "succeeded\n%!";
+        | Some _ ->
           false
       ))
+  in
+  let () = 
+    match design_factory (assume_growth recipes ~growth:growth_via_design) with
+    | None -> assert false
+    | Some solution ->
+      Lp.Optimal_factory.report solution
   in
   Core.printf "growth: %f-%f\n%!" growth_via_design growth_via_prices;
   ()

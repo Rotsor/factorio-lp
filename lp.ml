@@ -129,22 +129,25 @@ end = struct
           if Float.abs v > 1e-5
           then printf "%80s: %20.4f\n"  name v)
     in
+    let recipe_amount recipe =
+      Option.value ~default:0.0 (Map.find t.recipes recipe)
+    in
     let () =
       Map.mapi t.problem ~f:(fun ~key:_ ~data ->
           let net = 
             List.fold ~init:0. ~f:(+)
-              (Map.data (Map.mapi data ~f:(fun ~key:recipe ~data:c -> c * Map.find_exn t.recipes recipe)))
+              (Map.data (Map.mapi data ~f:(fun ~key:recipe ~data:c -> c * recipe_amount recipe)))
           in
           let gross = 
             List.fold ~init:0. ~f:(+)
               (Map.data (Map.mapi data ~f:(fun ~key:recipe ~data:c -> 
-                   let r = c * Map.find_exn t.recipes recipe in
+                   let r = c * recipe_amount recipe in
                    (Float.abs r / 2.)
                  )))
           in
           let individuals =
             Array.filter_map 
-              (Map.mapi data ~f:(fun ~key:recipe ~data:c -> c * Map.find_exn t.recipes recipe)
+              (Map.mapi data ~f:(fun ~key:recipe ~data:c -> c * recipe_amount recipe)
                |> Map.to_alist
                |> Array.of_list
               )
