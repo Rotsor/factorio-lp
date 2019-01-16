@@ -167,14 +167,26 @@ let description_to_string = function
   | `pump item ->
     "pumpage@" ^ Item_name.to_string item
 
-let recipes game_data growth =
-  let mk_recipe name ~output ~capital =
-    name,
+module Recipe = struct
+  type t = {
+    output : Value.t;
+    capital : Value.t;
+  }
+
+  let economic_output ~growth t =
     Map.filter 
       ~f:(fun x -> Float.abs x > 1e-13)
       (Value.(+)
-         (Value.scale capital (-growth/(3600.)))
-         output)
+         (Value.scale t.capital (-growth/(3600.)))
+         t.output)
+end
+
+let recipes game_data =
+  let mk_recipe name ~output ~capital =
+    name,
+    { Recipe.output;
+      capital;
+    }
   in
   let conversion name output =
     mk_recipe name ~output ~capital:Value.zero
@@ -194,9 +206,7 @@ let recipes game_data growth =
        in
        if drop then None else
          Some (let name = description_to_string description in
-                name, (Map.filter 
-                    ~f:(fun x -> Float.abs x > 1e-13)
-                    (Value.(+) (Value.scale (Blueprint.capital blueprint) (-growth/(3600.))) (Blueprint.output game_data blueprint))))
+                mk_recipe name ~output:(Blueprint.output game_data blueprint) ~capital:(Blueprint.capital blueprint))
       ))
   in
   let burning =
@@ -233,56 +243,89 @@ let recipes game_data growth =
         [
             (*"free-swamp-garden", Item_name.Map.singleton (Item_name.of_string "swamp-garden") 1.0;
             "free-desert-garden", Item_name.Map.singleton (Item_name.of_string "desert-garden") 1.0;
-            "free-temperate-garden", Item_name.Map.singleton (Item_name.of_string "temperate-garden") 1.0; *)
-            "steam-conversion", 
-                Item_name.Map.of_alist_exn [
-                    (Item_name.of_string "steam"), 1.0;
-                    (Item_name.of_string "electrical-MJ"), -(150. * 200e-6);
-                    ];
-            "free-desert-tree", Item_name.Map.singleton (Item_name.of_string "desert-tree") 1.0;
-            "free-viscous-water", Item_name.Map.singleton (Item_name.of_string "water-viscous-mud") 100.0;
-            "big-bottle", 
-                Item_name.Map.of_alist_exn [
-                    (Item_name.of_string "big-bottle"), 1.0;
-                    (Item_name.of_string "high-tech-science-pack"), -1.0;
-                    (Item_name.of_string "science-pack-1"), -1.0;
-                    (Item_name.of_string "science-pack-2"), -1.0;
-                    (Item_name.of_string "science-pack-3"), -1.0;
-                    (Item_name.of_string "productivity-module-4"), -0.1;
-                    ];
+              "free-temperate-garden", Item_name.Map.singleton (Item_name.of_string "temperate-garden") 1.0; *)
+
+
+          conversion "steam-conversion" (
+            Item_name.Map.of_alist_exn [
+              (Item_name.of_string "steam"), 1.0;
+              (Item_name.of_string "electrical-MJ"), -(150. * 200e-6);
+            ]);
+          conversion "free-desert-tree" (Item_name.Map.singleton (Item_name.of_string "desert-tree") 1.0);
+          conversion "free-viscous-water" (Item_name.Map.singleton (Item_name.of_string "water-viscous-mud") 100.0);
+          conversion "big-bottle" ( 
+            Item_name.Map.of_alist_exn [
+              (Item_name.of_string "big-bottle"), 1.0;
+              (Item_name.of_string "high-tech-science-pack"), -1.0;
+              (Item_name.of_string "science-pack-1"), -1.0;
+              (Item_name.of_string "science-pack-2"), -1.0;
+              (Item_name.of_string "science-pack-3"), -1.0;
+              (Item_name.of_string "productivity-module-4"), -0.1;
+            ]);          
+
           ]
 
-let borism game_data () =
-    Lp.design_optimal_factory ~goal_item:(Item_name.of_string "big-bottle") (recipes game_data 0.)
+let assume_growth ~growth = List.map ~f:(fun (name, recipe) -> (name, Recipe.economic_output ~growth recipe))
+
+let explain_lack_of_growth recipes =
+  let by_name = String.Map.of_alist_exn recipes in
+  let design goal_item = Lp.Optimal_factory.design ~goal_item ~recipes:(assume_growth ~growth:0.0000 recipes) in
+  let rec go queue saw =
+    match queue with
+    | [] -> ()
+    | item :: queue ->
+      let report s =
+        printf "%50s: %s\n" (Item_name.to_string item) s
+      in
+      match design item with
+      | None ->
+        report "can't produce";
+        go queue saw
+      | Some { goal_item_output; recipes; _ } ->
+        report (Float.to_string goal_item_output);
+        let new_items =
+            List.concat_map (Map.to_alist recipes) ~f:(fun (recipe, _amount) ->
+            let capital = (map_find_exn by_name recipe).capital in
+            Map.to_alist capital
+            |> List.filter_map ~f:(fun (item, _amount2) ->
+            if not (Set.mem !saw item) then
+              (saw := Set.add !saw item;
+               Some item)
+            else
+              None)
+            )
+        in
+        go (new_items @ queue) saw
+  in
+  go [Item_name.electrical_mj] (ref Item_name.Set.empty)
 
 let improve_configuration_hardcoded game_data () =
   let recipes = recipes game_data in
-  let _design_factory = Lp.design_optimal_factory ~goal_item:(Item_name.of_string "iron-plate") (recipes (0.00)) in
-  (*  let _ = assert false in *)
+  explain_lack_of_growth recipes;
   let%map () =
     Writer.save
-      ~contents:(Sexp.to_string_hum [%sexp (String.Map.of_alist_exn (recipes 0.05) : Value.t String.Map.t)]) "recipes.sexp"
+      ~contents:(Sexp.to_string_hum [%sexp (String.Map.of_alist_exn (assume_growth recipes ~growth:0.05) : Value.t String.Map.t)]) "recipes.sexp"
   in
     let growth_via_prices = snd (
         binary_search (-0.05) 4.0 ~f:(fun growth ->
             match Lp.Item_prices.find (
-                recipes growth
+                assume_growth recipes ~growth
             ) with
           | `Too_easy -> false
           | `Ok _ -> true
         ))
   in
   let () = 
-    match Lp.Item_prices.find (recipes growth_via_prices) with
+    match Lp.Item_prices.find (assume_growth recipes ~growth:growth_via_prices) with
     | `Too_easy -> assert false
     | `Ok solution ->
       Lp.Item_prices.report solution
   in
-  let design_factory = Lp.design_optimal_factory ~goal_item:(Item_name.electrical_mj) in
+  let design_factory recipes = Lp.Optimal_factory.design ~goal_item:(Item_name.electrical_mj) ~recipes in
   let growth_via_design = 
     fst (binary_search 0.0 4.0 ~f:(fun growth ->
         Core.printf "attempting: %f\n%!" growth;
-        match design_factory (recipes growth) with
+        match design_factory (assume_growth recipes ~growth) with
         | exception exn ->
           Core.printf !"failed %{sexp: Exn.t}\n%!" exn;
           true
