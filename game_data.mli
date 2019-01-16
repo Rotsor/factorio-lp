@@ -123,6 +123,4 @@ type t = {
 
 val entity_by_item_name : t -> Item_name.t -> Entity_prototype.t option
 
-val pp : path:string -> unit Deferred.t
-
 val load : path:string -> t Deferred.t

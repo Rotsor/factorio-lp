@@ -498,12 +498,6 @@ let of_raw ({
 let entity_by_item_name t item_name =
   Map.find t.accessible_entities item_name
 
-let pp ~path =
-  Reader.load_sexp_exn path [%of_sexp: Game_data_raw.t]
-  >>= fun res ->
-  print_s [%sexp (of_raw res : t)];
-  return ()
-
 let load ~path =
   Reader.load_sexp_exn path [%of_sexp: Game_data_raw.t]
   >>= fun res ->

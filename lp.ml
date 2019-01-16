@@ -240,7 +240,7 @@ end = struct
           Map.map net_per_item ~f:(fun arr ->
               String.Map.of_alist_exn (
                 Array.mapi arr ~f:(fun i c ->
-                    (fst (Array.get recipes i), c * prim.(i))
+                    (fst (Array.get recipes i), c)
                   )
                 |> Array.to_list)
             )
