@@ -64,7 +64,7 @@ module Item_prototype : sig
       effects : Module_effects.t;
       category : string;
       tier : float;
-      limitations : Recipe_name.t list;
+      limitations : Recipe_name.Set.t option;
     } [@@deriving sexp]
   end
   

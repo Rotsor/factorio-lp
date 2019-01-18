@@ -115,7 +115,7 @@ module Item_prototype = struct
       effects : Module_effects.t;
       category : string;
       tier : float;
-      limitations : Recipe_name.t list;
+      limitations : Recipe_name.Set.t option;
     } [@@deriving sexp]
   end
   
@@ -150,7 +150,11 @@ module Item_prototype = struct
       match module_effects, module_category, module_tier, module_limitations with
       | None, None, None, None -> None
       | Some effects, Some category, Some tier, Some limitations ->
-        Some { As_module.effects; category; tier; limitations }
+        Some { As_module.effects; category; tier;
+               limitations =
+                 match limitations with
+                 | [] -> None
+                 | _ -> Some (Set.of_list (module Recipe_name) limitations) }
       | _ -> raise_s [%sexp "neither all nor none module fields specified"]
     in
     let rocket_launch_products = Option.map ~f:(List.map ~f:Product.of_raw) rocket_launch_products in

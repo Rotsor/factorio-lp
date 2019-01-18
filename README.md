@@ -27,14 +27,13 @@ There are two ways to do that:
 To export recipe data, use [script.lua] (paste the entire contents of the file into
 factorio console (yes, multiline commands are fine)).
 
-That generates a file generated.ml in ~/.factorio/script-output/
-which you need to copy over generated.ml in this repo and re-compile.
+That generates a file `game-data.sexp` in `script-output` directory in factorio.
+If that happens to be in `~/.factorio/script-output/game-data.sexp` then factorio-lp
+will find it automatically. If not, you'll need to point it to it.
 
-Then run:
+Then modify the program to make it compute what you want (which might involve rewriting much of it) and run:
 
 ```
 dune build main.exe
-./_build/default/main.exe improve-hardcoded
+./_build/default/main.exe solve
 ```
-
-and see some nonsense that you can't interpret easily.

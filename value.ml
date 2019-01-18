@@ -30,3 +30,5 @@ let (+) = Map.merge ~f:(fun ~key:_ -> function
 let sum values = Option.value ~default:zero (List.reduce_balanced ~f:(+) values)
 
 let (-) a b = (+) a (scale b (-1.))
+
+let singleton item quantity = of_list [quantity, item]

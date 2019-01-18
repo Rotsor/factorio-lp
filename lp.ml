@@ -6,97 +6,102 @@ open! Types_nice
 module G = Glpk
 
 module Item_prices : sig
-    type t
-    val find : (String.t * Value.t) list -> [ `Too_easy | `Ok of t ]
-    val lookup : t -> (Item_name.t -> float)
-    val report : t -> unit
+  type t
+  val find : (String.t * Value.t) list -> [ `Too_easy | `Ok of t ]
+  val lookup_exn : t -> (Item_name.t -> float)
+  val report : extra:(String.t * Value.t) list -> t -> unit
 end = struct
 
-    type t = {
-        prices : float Item_name.Map.t;
-        recipes : (String.t * Value.t) list;
-    }
+  type t = {
+    prices : float Item_name.Map.t;
+    recipes : (String.t * Value.t) list;
+  }
 
-    let lookup { prices; _ } i = Option.value_exn (Map.find prices i)
+  let lookup_exn { prices; _ } i = Option.value_exn (Map.find prices i)
+  let lookup { prices; _ } i = Map.find prices i
 
-    let find (recipes_list : (String.t * Value.t) list) =
-        let item_array, (item_to_i : Item_name.t -> int) = 
-            List.concat_map recipes_list ~f:(fun (_recipe, value) ->
-                Map.keys value)
-            |> Item_name.Set.of_list
-            |> fun s ->
-            let a = Array.of_list (Set.to_list s) in
-            let m = 
-                List.mapi (Array.to_list a) ~f:(fun i v -> (v, i))
-                |> Item_name.Map.of_alist_exn
-            in
-            (a, map_find_exn m)
-        in
-        let constraints =
-            List.map recipes_list ~f:(fun (_r, v) ->
-                let res = Array.map item_array ~f:(fun _ -> 0.0) in
-                let () =
-                    Map.to_alist v
-                    |> List.iter ~f:(fun (i, v) ->
-                        assert (Float.(=) (Array.get res (item_to_i i)) 0.0);
-                        Array.set res (item_to_i i) v)
-                in
-                (res, (-Float.infinity, 0.))
-            )
-        in
-        let lp =
-            G.make_problem Maximize
-                (Array.map item_array ~f:(fun _ -> 1.0))
-                (Array.of_list (List.map ~f:fst constraints))
-                (Array.of_list (List.map ~f:snd constraints))
-                (Array.map item_array ~f:(fun i -> 
-                    if (Item_name.(=) i Item_name.electrical_mj)
-                    then (1., 1.)
-                    else
-                    if Item_name.(=) (Item_name.of_string "building-size") i
-                    then (0.0, 0.0)
-                    else 
-                    if (Item_name.(=) i (Item_name.of_string "solid-lime"))
-                    then (-0.0, 10000.)
-                    else (-0.0, 1000000.)
-                    ))
-        in
-        G.set_message_level lp 0;
-        G.scale_problem lp;
-        G.use_presolver lp true;
-        match G.simplex lp with
-        | exception G.No_primal_feasible_solution -> `Too_easy
-        | () ->
-            let prim = G.get_col_primals lp in
-            let _objective_val = (G.get_obj_val lp) in
-            let prices =
-                Array.mapi prim ~f:(fun i v ->
-                    (Array.get item_array i), v
-                ) |>
-                Array.to_list
-                |> Item_name.Map.of_alist_exn
-            in
-            `Ok { prices; recipes = recipes_list }
+  let find (recipes_list : (String.t * Value.t) list) =
+    let item_array, (item_to_i : Item_name.t -> int) = 
+      List.concat_map recipes_list ~f:(fun (_recipe, value) ->
+          Map.keys value)
+      |> Item_name.Set.of_list
+      |> fun s ->
+      let a = Array.of_list (Set.to_list s) in
+      let m = 
+        List.mapi (Array.to_list a) ~f:(fun i v -> (v, i))
+        |> Item_name.Map.of_alist_exn
+      in
+      (a, map_find_exn m)
+    in
+    let constraints =
+      List.map recipes_list ~f:(fun (_r, v) ->
+          let res = Array.map item_array ~f:(fun _ -> 0.0) in
+          let () =
+            Map.to_alist v
+            |> List.iter ~f:(fun (i, v) ->
+                assert (Float.(=) (Array.get res (item_to_i i)) 0.0);
+                Array.set res (item_to_i i) v)
+          in
+          (res, (-Float.infinity, 0.))
+        )
+    in
+    let lp =
+      G.make_problem Maximize
+        (Array.map item_array ~f:(fun _ -> 1.0))
+        (Array.of_list (List.map ~f:fst constraints))
+        (Array.of_list (List.map ~f:snd constraints))
+        (Array.map item_array ~f:(fun i -> 
+             if (Item_name.(=) i Item_name.electrical_mj)
+             then (1., 1.)
+             else
+             if Item_name.(=) (Item_name.of_string "building-size") i
+             then (0.0, 0.0)
+             else 
+             if (Item_name.(=) i (Item_name.of_string "solid-lime"))
+             then (-0.0, 10000.)
+             else (-0.0, 1000000.)
+           ))
+    in
+    G.set_message_level lp 0;
+    G.scale_problem lp;
+    G.use_presolver lp true;
+    match G.simplex lp with
+    | exception G.No_primal_feasible_solution -> `Too_easy
+    | () ->
+      let prim = G.get_col_primals lp in
+      let _objective_val = (G.get_obj_val lp) in
+      let prices =
+        Array.mapi prim ~f:(fun i v ->
+            (Array.get item_array i), v
+          ) |>
+        Array.to_list
+        |> Item_name.Map.of_alist_exn
+      in
+      `Ok { prices; recipes = recipes_list }
 
-    let report ({ prices; recipes } as t) =
-        let () =
-            prices
-            |> Map.to_alist
-            |> List.sort ~compare:(fun (_, x1) (_, x2) -> Float.compare x1 x2)
-            |> List.iter ~f:(fun (name, v) -> printf "%80s: %20.4f\n"  (Item_name.to_string name) v)
-        in
-        let item_price item = lookup t item in
-        let () =
-            List.map recipes ~f:(fun (recipe, (output : Value.t)) ->
-                let output_utility =
-                    Value.utility ~item_price output
-                in
-                (recipe, output_utility)
-            )
-            |> List.sort ~compare:(Comparable.lift Float.compare ~f:(fun (_, x) -> x))
-            |> List.iter ~f:(fun (r,v) -> print_s [%sexp (r, v : string * float)])
-        in
-        ()
+  let report ~extra ({ prices; recipes } as t) =
+    let () =
+      prices
+      |> Map.to_alist
+      |> List.sort ~compare:(fun (_, x1) (_, x2) -> Float.compare x1 x2)
+      |> List.iter ~f:(fun (name, v) -> printf "%80s: %20.4f\n"  (Item_name.to_string name) v)
+    in
+    let item_price item =
+      match lookup t item with
+      | None -> 1e7
+      | Some x -> x
+    in
+    let () =
+      List.map (recipes @ extra) ~f:(fun (recipe, (output : Value.t)) ->
+          let output_utility =
+            Value.utility ~item_price output
+          in
+          (recipe, output_utility)
+        )
+      |> List.sort ~compare:(Comparable.lift Float.compare ~f:(fun (_, x) -> x))
+      |> List.iter ~f:(fun (r,v) -> print_s [%sexp (r, v : string * float)])
+    in
+    ()
 end
 
 module Optimal_factory : sig 
@@ -176,7 +181,7 @@ end = struct
     in
     ()
 
-  
+
   let design ~goal_item ~recipes:(recipes_list : (String.t * Value.t) list) =
     let recipes = Array.of_list recipes_list in
     Core.printf "%s\n" (Sexp.to_string [%sexp [%here]]);

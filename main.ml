@@ -143,12 +143,9 @@ let all_trivial_blueprints (game_data : Game_data.t) =
         List.map (warn_if_empty [%sexp (recipe_name : Recipe_name.t)] (available_machines game_data recipe_name))
           ~f:(fun machine ->
               (`recipe (recipe_name, machine), (Blueprint.trivial
-                                          game_data
-                                          ?inserters:None
-                                          ?land_:None
-                                          ~recipe:recipe_name
-                                          ~machine
-                                          ())))
+                                                  ~recipe:recipe_name
+                                                  ~machine
+                                                  ())))
       )
   in
   let offshore_pumps =
@@ -167,24 +164,84 @@ let description_to_string = function
   | `pump item ->
     "pumpage@" ^ Item_name.to_string item
 
-module Recipe = struct
-  type t = {
-    output : Value.t;
-    capital : Value.t;
-  }
+let rec choose_many l n =
+  match (l, n) with
+  | _, 0 -> [[]]
+  | [], _ -> []
+  | (x :: xs), n ->
+    List.concat (List.init (Int.(+) n 1) ~f:(fun k ->
+        List.map ~f:(fun l -> (k, x) :: l)
+          (choose_many xs (Int.(-) n k))))
 
-  let economic_output ~growth t =
-    Map.filter 
-      ~f:(fun x -> Float.abs x > 1e-13)
-      (Value.(+)
-         (Value.scale t.capital (-growth/(3600.)))
-         t.output)
-end
+let compress_module_name m =
+  match String.split (Item_name.to_string m) ~on:'-' with
+  | [ kind; "module"; rank ] ->
+    let kind = match kind with
+      | "productivity" -> "p"
+      | "speed" -> "s"
+      | "effectivity" -> "e"
+      | _ -> kind
+    in
+    let rank = match rank with
+      | "2" -> "0"
+      | "4" -> "1"
+      | "6" -> "2"
+      | "8" -> "3"
+      | _ -> rank
+    in
+    kind ^ rank
+  | _ -> Item_name.to_string m
+
+
+let module_names_to_string modules =
+  String.concat ~sep:"+" (List.map modules ~f:(fun m -> compress_module_name m))
+
+let crafting_recipes_with_modules game_data =
+  let _mk_recipe name ~output ~capital =
+    name,
+    { Investment.output;
+      capital;
+    }
+  in
+  let all_modules =
+    Map.filter_map
+      game_data.items
+      ~f:(fun item -> item.as_module)
+  in
+  (List.concat_map (Map.to_alist game_data.recipes) ~f:(fun (recipe_name, _) ->
+       let applicable_modules =
+         Map.filter all_modules ~f:(fun m -> match m.limitations with
+             | None -> true
+             | Some limitations -> Set.mem limitations recipe_name)
+       in
+       Core.printf "applicable modules: %d\n%!" (Map.length applicable_modules);
+       List.concat_map (available_machines game_data recipe_name)
+         ~f:(fun machine_name ->
+             match Game_data.entity_by_item_name game_data machine_name with
+             | None -> assert false
+             | Some { kind = Machine machine; _ } ->
+               List.map (choose_many (Map.to_alist applicable_modules) machine.module_inventory_size)
+                 ~f:(fun modules ->
+                     let modules = List.concat_map modules ~f:(fun (k, m) ->
+                         List.init k ~f:(fun _ -> m))
+                     in
+                     let module_names, module_effects = List.unzip modules in
+                     let module_effects =
+                       List.map module_effects ~f:(fun x -> (Modules.Effects.of_raw x.effects))
+                       |> List.fold ~init:Modules.Effects.zero ~f:(Modules.Effects.(+))
+                     in
+                     (sprintf "%s@%s*%s" (Recipe_name.to_string recipe_name) (Item_name.to_string machine_name) (module_names_to_string module_names))
+                     ,
+                     Crafting_recipes.crafting_recipe_output game_data ~machine:machine_name ~recipe:recipe_name ~module_effects ~utilization:1.0)
+             | _ -> assert false
+           )
+     ))
+
 
 let recipes game_data =
   let mk_recipe name ~output ~capital =
     name,
-    { Recipe.output;
+    { Investment.output;
       capital;
     }
   in
@@ -206,7 +263,7 @@ let recipes game_data =
        in
        if drop then None else
          Some (let name = description_to_string description in
-                mk_recipe name ~output:(Blueprint.output game_data blueprint) ~capital:(Blueprint.capital blueprint))
+                mk_recipe name ~output:(Blueprint.output game_data blueprint) ~capital:(Blueprint.capital game_data blueprint))
       ))
   in
   let burning =
@@ -244,8 +301,6 @@ let recipes game_data =
             (*"free-swamp-garden", Item_name.Map.singleton (Item_name.of_string "swamp-garden") 1.0;
             "free-desert-garden", Item_name.Map.singleton (Item_name.of_string "desert-garden") 1.0;
               "free-temperate-garden", Item_name.Map.singleton (Item_name.of_string "temperate-garden") 1.0; *)
-
-
           conversion "steam-conversion" (
             Item_name.Map.of_alist_exn [
               (Item_name.of_string "steam"), 1.0;
@@ -261,11 +316,10 @@ let recipes game_data =
               (Item_name.of_string "science-pack-2"), -1.0;
               (Item_name.of_string "science-pack-3"), -1.0;
               (Item_name.of_string "productivity-module-4"), -0.1;
-            ]);          
-
+            ]);
           ]
 
-let assume_growth ~growth = List.map ~f:(fun (name, recipe) -> (name, Recipe.economic_output ~growth recipe))
+let assume_growth ~growth = List.map ~f:(fun (name, recipe) -> (name, Investment.pure_output ~growth recipe))
 
 let explain_lack_of_growth recipes =
   let by_name = String.Map.of_alist_exn recipes in
@@ -308,6 +362,8 @@ let solve game_data () =
     Writer.save
       ~contents:(Sexp.to_string_hum [%sexp (String.Map.of_alist_exn (assume_growth recipes ~growth:0.05) : Value.t String.Map.t)]) "recipes.sexp"
   in
+  let crafting_recipes_with_modules = crafting_recipes_with_modules game_data in
+  Core.printf "%d\n%!" (List.length crafting_recipes_with_modules);
     let growth_via_prices = snd (
         binary_search 0.0 10.0 ~f:(fun growth ->
             match Lp.Item_prices.find (
@@ -322,6 +378,7 @@ let solve game_data () =
     | `Too_easy -> assert false
     | `Ok solution ->
       Lp.Item_prices.report solution
+        ~extra:crafting_recipes_with_modules
   in
   let design_factory recipes = Lp.Optimal_factory.design ~goal_item:(Item_name.electrical_mj) ~recipes in
   let growth_via_design = 
@@ -404,7 +461,7 @@ let () =
         List.iter l ~f:(fun ((recipe, machine_name), r) -> Core_kernel.printf "%s\n" (Sexp.to_string_hum 
         [%sexp 
             (Result.paybacks_per_hour r : float),
-            ((recipe : Recipe.t).name : Recipe_name.t),
+            ((recipe : Investment.t).name : Recipe_name.t),
             (machine_name : Item_name.t),
             (r : Result.t)
 (*            ,(List.take (Result.suggestions r) 6 : Suggestion.t list) *)
@@ -413,7 +470,7 @@ let () =
             )
     in
     report "worst" (List.take (List.filter ~f:(fun i -> 
-        not (hide_recipe ((fst (fst i) : Recipe.t).name))) l) 6);
+        not (hide_recipe ((fst (fst i) : Investment.t).name))) l) 6);
     report "best" (List.take (List.rev l) 6);
     )) *)
     
