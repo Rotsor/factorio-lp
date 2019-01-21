@@ -232,7 +232,17 @@ let crafting_recipes_with_modules game_data =
                      in
                      (sprintf "%s@%s*%s" (Recipe_name.to_string recipe_name) (Item_name.to_string machine_name) (module_names_to_string module_names))
                      ,
-                     Crafting_recipes.crafting_recipe_output game_data ~machine:machine_name ~recipe:recipe_name ~module_effects ~utilization:1.0)
+                     { Investment.
+                       output =
+                         Crafting_recipes.crafting_recipe_output game_data ~machine:machine_name ~recipe:recipe_name ~module_effects ~utilization:1.0;
+
+                       capital =
+                         Value.of_list (
+                           List.map ~f:(fun name -> (1.0, name))
+                             (machine_name :: module_names)
+                         )
+                     }
+                   )
              | _ -> assert false
            )
      ))
@@ -255,7 +265,8 @@ let recipes game_data =
          | `pump _ ->
            false
          | `recipe (recipe, _machine) ->
-           List.exists [
+            List.exists [
+                (* "sb-water-mineralized-crystallization" *)
              (* "tree-arboretum-1" *)
              (* "swamp-5"; "desert-5"; "temperate-4";"temperate-5"; "desert-4"; "desert-3";
                     "bob-rubber"; "nutrients-refining-3"; "desert-tree-arboretum-1"; *)
@@ -306,8 +317,8 @@ let recipes game_data =
               (Item_name.of_string "steam"), 1.0;
               (Item_name.of_string "electrical-MJ"), -(150. * 200e-6);
             ]);
-          conversion "free-desert-tree" (Item_name.Map.singleton (Item_name.of_string "desert-tree") 1.0);
-          conversion "free-viscous-water" (Item_name.Map.singleton (Item_name.of_string "water-viscous-mud") 100.0);
+          (* conversion "free-desert-tree" (Item_name.Map.singleton (Item_name.of_string "desert-tree") 1.0); *)
+          (* conversion "free-electronic-circuit" (Item_name.Map.singleton (Item_name.of_string "electronic-circuit") 1.0); *)
           conversion "big-bottle" ( 
             Item_name.Map.of_alist_exn [
               (Item_name.of_string "big-bottle"), 1.0;
@@ -378,7 +389,9 @@ let solve game_data () =
     | `Too_easy -> assert false
     | `Ok solution ->
       Lp.Item_prices.report solution
-        ~extra:crafting_recipes_with_modules
+        ~extra:(
+          List.map ~f:(fun (name, investment) -> (name, Investment.pure_output investment ~growth:growth_via_prices)) crafting_recipes_with_modules
+        )
   in
   let design_factory recipes = Lp.Optimal_factory.design ~goal_item:(Item_name.electrical_mj) ~recipes in
   let growth_via_design = 

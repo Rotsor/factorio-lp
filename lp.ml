@@ -99,7 +99,7 @@ end = struct
           (recipe, output_utility)
         )
       |> List.sort ~compare:(Comparable.lift Float.compare ~f:(fun (_, x) -> x))
-      |> List.iter ~f:(fun (r,v) -> print_s [%sexp (r, v : string * float)])
+      |> List.iter ~f:(fun (r,v) -> printf "%s\n" (Sexp.to_string [%sexp (r, v : string * float)]))
     in
     ()
 end
@@ -159,7 +159,7 @@ end = struct
               ~f:(fun (r, v) ->
                   if Float.(=) gross 0. then None
                   else
-                  if Float.abs (v / gross) < 1e-3 then None else 
+                  if Float.abs (v / gross) < 1e-4 then None else 
                     Some (r, v, v / gross)
                 )
           in
