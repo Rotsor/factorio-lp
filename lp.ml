@@ -222,7 +222,7 @@ end = struct
         (Array.of_list (List.map ~f:snd constraints))
         (Array.map recipes ~f:(fun _ -> (0., Float.infinity)))
     in
-    (*G.set_message_level lp 0;*)
+    G.set_message_level lp 0;
     G.scale_problem lp;
     G.use_presolver lp true;
     G.simplex lp;
