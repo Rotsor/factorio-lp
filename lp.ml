@@ -13,9 +13,9 @@ module Item_prices : sig
 end = struct
 
   type t = {
-    prices : float Item_name.Map.t;
-    recipes : (String.t * Value.t) list;
-  }
+      prices : float Item_name.Map.t;
+      recipes : (String.t * Value.t) list;
+    }
 
   let lookup_exn { prices; _ } i = Option.value_exn (Map.find prices i)
   let lookup { prices; _ } i = Map.find prices i
@@ -26,12 +26,12 @@ end = struct
           Map.keys value)
       |> Item_name.Set.of_list
       |> fun s ->
-      let a = Array.of_list (Set.to_list s) in
-      let m = 
-        List.mapi (Array.to_list a) ~f:(fun i v -> (v, i))
-        |> Item_name.Map.of_alist_exn
-      in
-      (a, map_find_exn m)
+         let a = Array.of_list (Set.to_list s) in
+         let m = 
+           List.mapi (Array.to_list a) ~f:(fun i v -> (v, i))
+           |> Item_name.Map.of_alist_exn
+         in
+         (a, map_find_exn m)
     in
     let constraints =
       List.map recipes_list ~f:(fun (_r, v) ->
@@ -39,8 +39,8 @@ end = struct
           let () =
             Map.to_alist v
             |> List.iter ~f:(fun (i, v) ->
-                assert (Float.(=) (Array.get res (item_to_i i)) 0.0);
-                Array.set res (item_to_i i) v)
+                   assert (Float.(=) (Array.get res (item_to_i i)) 0.0);
+                   Array.set res (item_to_i i) v)
           in
           (res, (-Float.infinity, 0.))
         )
@@ -52,15 +52,15 @@ end = struct
         (Array.of_list (List.map ~f:snd constraints))
         (Array.map item_array ~f:(fun i -> 
              if (Item_name.(=) i Item_name.electrical_mj)
-             then (1., 1.)
+             then (1.0, 1.0)
              else
-             if Item_name.(=) (Item_name.of_string "building-size") i
-             then (0.0, 0.0)
-             else 
-             if (Item_name.(=) i (Item_name.of_string "solid-lime"))
-             then (-0.0, 10000.)
-             else (-0.0, 1000000.)
-           ))
+               if Item_name.(=) (Item_name.of_string "building-size") i
+               then (0.0, 0.0)
+               else 
+                 if (Item_name.(=) i (Item_name.of_string "solid-lime"))
+                 then (-0.0, 10000.)
+                 else (-0.0, 1000000.)
+        ))
     in
     G.set_message_level lp 0;
     G.scale_problem lp;
@@ -68,16 +68,16 @@ end = struct
     match G.simplex lp with
     | exception G.No_primal_feasible_solution -> `Too_easy
     | () ->
-      let prim = G.get_col_primals lp in
-      let _objective_val = (G.get_obj_val lp) in
-      let prices =
-        Array.mapi prim ~f:(fun i v ->
-            (Array.get item_array i), v
-          ) |>
-        Array.to_list
-        |> Item_name.Map.of_alist_exn
-      in
-      `Ok { prices; recipes = recipes_list }
+       let prim = G.get_col_primals lp in
+       let _objective_val = (G.get_obj_val lp) in
+       let prices =
+         Array.mapi prim ~f:(fun i v ->
+             (Array.get item_array i), v
+           ) |>
+           Array.to_list
+         |> Item_name.Map.of_alist_exn
+       in
+       `Ok { prices; recipes = recipes_list }
 
   let report ~extra ({ prices; recipes } as t) =
     let () =
@@ -106,24 +106,24 @@ end
 
 module Optimal_factory : sig 
   type t = {
-    recipes : float String.Map.t;
-    goal_item_output : float;
-    problem : float String.Map.t Item_name.Map.t
-  }
+      recipes : float String.Map.t;
+      goal_item_output : float;
+      problem : float String.Map.t Item_name.Map.t
+    }
 
   val design :
     goal_item:Item_name.t
     -> recipes : (String.t * Value.t) list
-    -> t option
+                 -> t option
 
   val report : t -> unit
 end = struct
 
   type t = {
-    recipes : float String.Map.t;
-    goal_item_output : float;
-    problem : float String.Map.t Item_name.Map.t
-  }
+      recipes : float String.Map.t;
+      goal_item_output : float;
+      problem : float String.Map.t Item_name.Map.t
+    }
 
   let report t =
     let () =
@@ -131,8 +131,8 @@ end = struct
       |> Map.to_alist
       |> List.sort ~compare:(fun (_, x1) (_, x2) -> Float.compare x1 x2)
       |> List.iter ~f:(fun (name, v) -> 
-          if Float.abs v > 1e-5
-          then printf "%80s: %20.4f\n"  name v)
+             if Float.abs v > 1e-5
+             then printf "%80s: %20.4f\n"  name v)
     in
     let recipe_amount recipe =
       Option.value ~default:0.0 (Map.find t.recipes recipe)
@@ -146,9 +146,9 @@ end = struct
           let gross = 
             List.fold ~init:0. ~f:(+)
               (Map.data (Map.mapi data ~f:(fun ~key:recipe ~data:c -> 
-                   let r = c * recipe_amount recipe in
-                   (Float.abs r / 2.)
-                 )))
+                             let r = c * recipe_amount recipe in
+                             (Float.abs r / 2.)
+              )))
           in
           let individuals =
             Array.filter_map 
@@ -157,27 +157,27 @@ end = struct
                |> Array.of_list
               )
               ~f:(fun (r, v) ->
-                  if Float.(=) gross 0. then None
-                  else
+                if Float.(=) gross 0. then None
+                else
                   if Float.abs (v / gross) < 1e-4 then None else 
                     Some (r, v, v / gross)
-                )
+              )
           in
           (net, gross, individuals)
         )
       |> Map.to_alist
       |> List.sort ~compare:(fun (_, (_, x1, _)) (_, (_, x2, _)) -> Float.compare x1 x2)
       |> List.iter ~f:(fun (name, (net, gross, components)) -> 
-          let components = 
-            String.concat ~sep:"" (Array.to_list (
-                Array.map components ~f:(fun (i, v, p) -> 
-                    sprintf "           %02.1f%%: %s:%f\n" (p * 100.) i v
-                  )))
-          in
-          if String.(=) components ""
-          then ()
-          else
-            printf "\n%60s: %20.4f %20.4f\n%s" (Item_name.to_string name) gross net components)
+             let components = 
+               String.concat ~sep:"" (Array.to_list (
+                                          Array.map components ~f:(fun (i, v, p) -> 
+                                              sprintf "           %02.1f%%: %s:%f\n" (p * 100.) i v
+                 )))
+             in
+             if String.(=) components ""
+             then ()
+             else
+               printf "\n%60s: %20.4f %20.4f\n%s" (Item_name.to_string name) gross net components)
     in
     ()
 
@@ -187,33 +187,33 @@ end = struct
     Core.printf "%s\n" (Sexp.to_string [%sexp [%here]]);
     let net_per_item =
       List.concat_mapi recipes_list ~f:(fun i -> (fun (_recipe, value) ->
-          Map.map value ~f:(fun f -> (i, f))
-          |> Map.to_alist
+                                          Map.map value ~f:(fun f -> (i, f))
+                                          |> Map.to_alist
         ))
       |> Item_name.Map.of_alist_multi
       |> Map.map ~f:(fun l ->
-          let arr = (Array.map recipes ~f:(fun _ -> 0.)) in
-          List.iter l
-            ~f:(fun (i, v) -> arr.(i) <- arr.(i) + v);
-          arr)
+             let arr = (Array.map recipes ~f:(fun _ -> 0.)) in
+             List.iter l
+               ~f:(fun (i, v) -> arr.(i) <- arr.(i) + v);
+             arr)
     in
     let constraints =
       Map.to_alist net_per_item
       |> List.map ~f:(fun (k, expression) ->
-          let constraint_ = 
-            if Item_name.(=) (Item_name.of_string "building-size") k
-            then (-1000.00, -0.0)
-            else
-              let bad_items = ["solid-lime"] in
-              if List.exists bad_items ~f:(fun bad -> Item_name.(=) (Item_name.of_string bad) k)
-              then (-1000., 0.00)
-              else
-              if Item_name.(=) k goal_item
-              then (-0.00, Float.infinity)
-              else (-0.00, Float.infinity)
-          in
-          (expression, constraint_)
-        )
+             let constraint_ = 
+               if Item_name.(=) (Item_name.of_string "building-size") k
+               then (-1000.00, -0.0)
+               else
+                 let bad_items = ["solid-lime"] in
+                 if List.exists bad_items ~f:(fun bad -> Item_name.(=) (Item_name.of_string bad) k)
+                 then (-1000., 0.00)
+                 else
+                   if Item_name.(=) k goal_item
+                   then (-0.00, Float.infinity)
+                   else (-0.00, Float.infinity)
+             in
+             (expression, constraint_)
+           )
     in
     let lp =
       G.make_problem Maximize
@@ -239,15 +239,15 @@ end = struct
         |> Map.filter ~f:(fun x -> Float.(>) x 1e-8)
       in
       Some {
-        goal_item_output = z;
-        recipes = recipes_map;
-        problem =
-          Map.map net_per_item ~f:(fun arr ->
-              String.Map.of_alist_exn (
-                Array.mapi arr ~f:(fun i c ->
-                    (fst (Array.get recipes i), c)
-                  )
-                |> Array.to_list)
-            )
-      }
+          goal_item_output = z;
+          recipes = recipes_map;
+          problem =
+            Map.map net_per_item ~f:(fun arr ->
+                String.Map.of_alist_exn (
+                    Array.mapi arr ~f:(fun i c ->
+                        (fst (Array.get recipes i), c)
+                      )
+                    |> Array.to_list)
+              )
+        }
 end

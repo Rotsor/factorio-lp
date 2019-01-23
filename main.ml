@@ -4,32 +4,6 @@ open Game_data
 
 open Common
 
-let hide_recipe = 
-    let hidden =
-        [
-            "bob-rubber";
-            "angelsore5-crushed-smelting";
-            "angelsore6-crushed-smelting";
-            "angelsore3-crushed-smelting";
-            "angelsore1-crushed-smelting";
-            "lead-plate";
-            "quartz-glass";
-            "silver-plate";
-            "tin-plate";
-            "cellulose-fiber-raw-wood";
-            "water-separation";
-        ]
-        |>  List.map ~f:(Recipe_name.of_string)
-    in
-    fun name -> 
-    List.exists hidden ~f:(Recipe_name.(=) name)
-    || String.is_prefix ~prefix:"alien-artifact-" (Recipe_name.to_string name)
-    || List.exists [
-        "diamond"; "amethyst"; "ruby"; "emerald"; "sapphire"; "topaz";
-        "ore2"; "ore4"; "ore5"; "ore6";
-        "-void-"] ~f:(fun forbidden_infix ->
-        String.is_substring ~substring:forbidden_infix (Recipe_name.to_string name))
-
 let cmd f = Command.basic ~summary:"" (Command.Param.return f)
 let cmd_async f = Async.Command.async ~extract_exn:true ~summary:"" (Command.Param.return f)
 
@@ -197,12 +171,6 @@ let module_names_to_string modules =
   String.concat ~sep:"+" (List.map modules ~f:(fun m -> compress_module_name m))
 
 let crafting_recipes_with_modules game_data =
-  let _mk_recipe name ~output ~capital =
-    name,
-    { Investment.output;
-      capital;
-    }
-  in
   let all_modules =
     Map.filter_map
       game_data.items
@@ -214,7 +182,6 @@ let crafting_recipes_with_modules game_data =
              | None -> true
              | Some limitations -> Set.mem limitations recipe_name)
        in
-       Core.printf "applicable modules: %d\n%!" (Map.length applicable_modules);
        List.concat_map (available_machines game_data recipe_name)
          ~f:(fun machine_name ->
              match Game_data.entity_by_item_name game_data machine_name with
@@ -235,7 +202,6 @@ let crafting_recipes_with_modules game_data =
                      { Investment.
                        output =
                          Crafting_recipes.crafting_recipe_output game_data ~machine:machine_name ~recipe:recipe_name ~module_effects ~utilization:1.0;
-
                        capital =
                          Value.of_list (
                            List.map ~f:(fun name -> (1.0, name))
@@ -454,37 +420,6 @@ let () =
                game_data ()
                >>| fun game_data ->
                print_s [%sexp (game_data : Game_data.t)]))
-          );
-(*
-        "recipe-summary", Command.basic ~summary:"" (Command.Param.return (fun () ->
+                        );
+      ])
 
-    (List.bind Game_data.recipes ~f:(fun recipe ->
-        List.filter_map Game_data.machines ~f:(fun machine ->
-            if List.mem machine.categories ~equal:Category.equal recipe.category
-            then
-            Some ((recipe, machine.name),
-                Blueprint.output (Blueprint.trivial ~recipe:recipe.name ~machine:machine.name))
-            else(None)
-        )
-    ))
-    |> List.sort ~compare:(Comparable.lift Float.compare ~f:(fun (_,x) -> Result.paybacks_per_hour x))
-    |> fun l ->
-    let report str l =
-        printf "\n%s:\n" str;
-        List.iter l ~f:(fun ((recipe, machine_name), r) -> Core_kernel.printf "%s\n" (Sexp.to_string_hum 
-        [%sexp 
-            (Result.paybacks_per_hour r : float),
-            ((recipe : Investment.t).name : Recipe_name.t),
-            (machine_name : Item_name.t),
-            (r : Result.t)
-(*            ,(List.take (Result.suggestions r) 6 : Suggestion.t list) *)
-            ]
-            )
-            )
-    in
-    report "worst" (List.take (List.filter ~f:(fun i -> 
-        not (hide_recipe ((fst (fst i) : Investment.t).name))) l) 6);
-    report "best" (List.take (List.rev l) 6);
-    )) *)
-    
-    ])
