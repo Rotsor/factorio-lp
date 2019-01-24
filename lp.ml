@@ -101,6 +101,7 @@ end = struct
       |> List.sort ~compare:(Comparable.lift Float.compare ~f:(fun (_, x) -> x))
       |> List.iter ~f:(fun (r,v) -> printf "%s\n" (Sexp.to_string [%sexp (r, v : string * float)]))
     in
+    printf "%!";
     ()
 end
 
@@ -108,7 +109,8 @@ module Optimal_factory : sig
   type t = {
       recipes : float String.Map.t;
       goal_item_output : float;
-      problem : float String.Map.t Item_name.Map.t
+      problem : float String.Map.t Item_name.Map.t;
+      shadow_prices : float Item_name.Map.t;
     }
 
   val design :
@@ -122,7 +124,8 @@ end = struct
   type t = {
       recipes : float String.Map.t;
       goal_item_output : float;
-      problem : float String.Map.t Item_name.Map.t
+      problem : float String.Map.t Item_name.Map.t;
+      shadow_prices : float Item_name.Map.t;
     }
 
   let report t =
@@ -132,10 +135,23 @@ end = struct
       |> List.sort ~compare:(fun (_, x1) (_, x2) -> Float.compare x1 x2)
       |> List.iter ~f:(fun (name, v) -> 
              if Float.abs v > 1e-5
-             then printf "%80s: %20.4f\n"  name v)
+             then printf "%80s: %20.4f (profit: %20.4f)\n" name v
+                    (Map.filter_map t.problem ~f:(fun m -> Map.find m name)
+                     |> Map.merge t.shadow_prices ~f:(fun ~key:_ -> function
+                            | `Left _price -> None
+                            | `Right _amount -> failwith "no price"
+                            | `Both (price, amount) -> Some (price *. amount))
+                     |> Map.data
+                     |> List.fold ~init:0.0 ~f:(+)
+                    )
+           )
     in
     let recipe_amount recipe =
       Option.value ~default:0.0 (Map.find t.recipes recipe)
+    in
+    let _energy_price = match Map.find t.shadow_prices Item_name.electrical_mj with
+      | None -> failwith "no energy price"
+      | Some p -> p
     in
     let () =
       Map.mapi t.problem ~f:(fun ~key:_ ~data ->
@@ -144,11 +160,14 @@ end = struct
               (Map.data (Map.mapi data ~f:(fun ~key:recipe ~data:c -> c * recipe_amount recipe)))
           in
           let gross = 
-            List.fold ~init:0. ~f:(+)
-              (Map.data (Map.mapi data ~f:(fun ~key:recipe ~data:c -> 
+            List.fold ~init:(0., 0.) ~f:(fun (a,b) (c,d) -> (a + c, b + d))
+              (Map.data (Map.mapi data ~f:(fun ~key:recipe ~data:c ->
                              let r = c * recipe_amount recipe in
-                             (Float.abs r / 2.)
+                             if r > 0. then (r, 0.)
+                             else (0., r)
               )))
+            |> fun (pos, neg) ->
+               Float.max (Float.abs pos) (Float.abs neg)
           in
           let individuals =
             Array.filter_map 
@@ -177,13 +196,23 @@ end = struct
              if String.(=) components ""
              then ()
              else
-               printf "\n%60s: %20.4f %20.4f\n%s" (Item_name.to_string name) gross net components)
+               (
+                 let price =
+                   match Map.find t.shadow_prices name with
+                   | Some x -> x
+                   | None -> -888888.
+                 in
+                 printf "\n%60s: %20.4f %20.4f %20.4f\n%s" (Item_name.to_string name) gross net price components))
     in
+    printf "goal output: %g\n" t.goal_item_output;
+    printf "%!";
     ()
 
 
   let design ~goal_item ~recipes:(recipes_list : (String.t * Value.t) list) =
+    let recipes_list = (recipes_list @ ["collect-goal-item", Value.of_list [1.0, Item_name.of_string "goal-item"; (-1.0), goal_item]]) in
     let recipes = Array.of_list recipes_list in
+    let goal_item = Item_name.of_string "goal-item" in
     Core.printf "%s\n" (Sexp.to_string [%sexp [%here]]);
     let net_per_item =
       List.concat_mapi recipes_list ~f:(fun i -> (fun (_recipe, value) ->
@@ -212,10 +241,11 @@ end = struct
                    then (-0.00, Float.infinity)
                    else (-0.00, Float.infinity)
              in
-             (expression, constraint_)
+             (k, (expression, constraint_))
            )
     in
     let lp =
+      let constraints = List.map ~f:snd constraints in
       G.make_problem Maximize
         (map_find_exn net_per_item goal_item)
         (Array.of_list (List.map ~f:fst constraints))
@@ -227,6 +257,11 @@ end = struct
     G.use_presolver lp true;
     G.simplex lp;
     let prim = G.get_col_primals lp in
+    let shadow_prices =
+      List.mapi constraints ~f:(fun i (item, _) ->
+          (item, G.get_row_dual lp i))
+      |> Item_name.Map.of_alist_exn
+    in
     let z = (G.get_obj_val lp) in
     if z <= 1e-8 then None
     else
@@ -241,10 +276,15 @@ end = struct
       Some {
           goal_item_output = z;
           recipes = recipes_map;
+          shadow_prices;
           problem =
             Map.map net_per_item ~f:(fun arr ->
                 String.Map.of_alist_exn (
-                    Array.mapi arr ~f:(fun i c ->
+                    Array.filter_mapi arr ~f:(fun i c ->
+                        if Float.(=) c 0.0
+                        then None
+                        else
+                          Some
                         (fst (Array.get recipes i), c)
                       )
                     |> Array.to_list)
