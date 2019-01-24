@@ -52,6 +52,9 @@ module Solver = Equation_solver.Make(Item_name)(String)
 
 open Async
 
+let print_s = Core.print_s
+let printf = Core.printf
+
 let rec binary_search ~f a b =
     let c = (a + b) / 2. in
     if Float.(<) (b - a) 1e-5 then
@@ -197,17 +200,14 @@ let crafting_recipes_with_modules game_data =
                        List.map module_effects ~f:(fun x -> (Modules.Effects.of_raw x.effects))
                        |> List.fold ~init:Modules.Effects.zero ~f:(Modules.Effects.(+))
                      in
+                     let investment =
+                       Blueprint.trivial_recipe_output_and_capital
+                         game_data ~recipe:recipe_name ~machine:machine_name ~module_effects ~module_names
+                     in
+                     recipe_name,
                      (sprintf "%s@%s*%s" (Recipe_name.to_string recipe_name) (Item_name.to_string machine_name) (module_names_to_string module_names))
                      ,
-                     { Investment.
-                       output =
-                         Crafting_recipes.crafting_recipe_output game_data ~machine:machine_name ~recipe:recipe_name ~module_effects ~utilization:1.0;
-                       capital =
-                         Value.of_list (
-                           List.map ~f:(fun name -> (1.0, name))
-                             (machine_name :: module_names)
-                         )
-                     }
+                     investment
                    )
              | _ -> assert false
            )
@@ -355,6 +355,57 @@ let _sample_recipes = [
     );
   ]
       
+
+let report ~growth ~goal_item (recipes : (string * Investment.t) list) (solution : Lp.Optimal_factory.t) =
+  let capital_per_recipe =
+    List.map recipes ~f:(fun (name, recipe) -> name, recipe.capital)
+    |> String.Map.of_alist_exn
+  in
+  let merge_and_sum ~f a b =
+    Map.merge a b ~f:(fun ~key:_ v -> Some (f v))
+    |> Map.data
+    |> List.fold ~init:0.0 ~f:(+)
+  in
+  let bottles_produced =
+    Map.find_exn solution.recipes "collect-goal-item"
+  in
+  let space_usage =
+    -1.0 * (Map.find_exn solution.problem (Item_name.of_string "building-size")
+            |> merge_and_sum solution.recipes
+                 ~f:(function
+                   | `Left _amount -> 0.0 (* recipe does not use space *)
+                   | `Right _ -> 0.0 (* recipe itself is not used? *)
+                   | `Both (space_per_recipe, recipes_used) -> (recipes_used * space_per_recipe)))
+  in
+  let value_shadow_price =
+    merge_and_sum solution.shadow_prices ~f:(function
+        | `Left _price -> 0.0
+        | `Right _amount -> failwith "price unknown"
+        | `Both (price, amount) -> price * amount)
+  in
+  let capital_cost_per_recipe =
+    Map.map capital_per_recipe ~f:value_shadow_price
+  in
+  let total_capital =
+    merge_and_sum solution.recipes capital_cost_per_recipe
+      ~f:(function
+        | `Left _amount -> 0.0 (* must be "collect-goal-item" *)
+        | `Right _ -> 0.0 (* unused *)
+        | `Both (x, y) -> x * y)
+  in
+  let space_value =
+    value_shadow_price (Value.of_list [ space_usage, Item_name.of_string "building-size" ])
+  in
+  let growth_value =
+    total_capital * growth / 3600.
+  in
+  Lp.Optimal_factory.report solution;
+  (*       print_s [%sexp (capital_cost_per_recipe : float String.Map.t)]; *)
+  printf "growth output: %f\n" growth_value;
+  printf "building-size input: %f\n" space_value;
+  printf "science output: %f\n%!" (value_shadow_price (Value.singleton goal_item 1.0) * bottles_produced)
+
+
 let solve game_data () =
   let recipes = recipes game_data in
   (*  explain_lack_of_growth recipes; *)
@@ -362,84 +413,65 @@ let solve game_data () =
     Writer.save
       ~contents:(Sexp.to_string_hum [%sexp (String.Map.of_alist_exn (assume_growth recipes ~growth:0.05) : Value.t String.Map.t)]) "recipes.sexp"
   in
-  (*  let design_factory recipes = Lp.Optimal_factory.design ~goal_item:(Item_name.electrical_mj) ~recipes in *)
   let goal_item = (Item_name.of_string "big-bottle") in
+  (*  let design_factory recipes = Lp.Optimal_factory.design ~goal_item:(Item_name.electrical_mj) ~recipes in *)
+  let growth = 4.1 in
   let design_factory recipes =
     Lp.Optimal_factory.design ~goal_item ~recipes in
-  let () =
-    let capital_per_recipe =
-      List.map recipes ~f:(fun (name, recipe) -> name, recipe.capital)
-      |> String.Map.of_alist_exn
-    in
-    let growth = 1.0 in
-    match design_factory (assume_growth recipes ~growth) with
-    | None -> assert false
-    | Some solution ->
-       Core.printf "postprocess\n%!";
-       let merge_and_sum ~f a b =
-         Map.merge a b ~f:(fun ~key:_ v -> Some (f v))
-         |> Map.data
-         |> List.fold ~init:0.0 ~f:(+)
-       in
-       let bottles_produced =
-         Map.find_exn solution.recipes "collect-goal-item"
-       in
-       let cnt = ref 0 in
-       let _transposed_problem =
-         Map.to_alist solution.problem
-         |> List.concat_map ~f:(fun (i, m) ->
-                Map.to_alist m
-                |> List.map ~f:(fun (j, v) ->
-                       incr cnt;
-                       assert (not (Float.(=) v 0.0));
-                       (j, (i, v))
-              ))
-         |> String.Map.of_alist_multi
-         |> Map.map ~f:(Item_name.Map.of_alist_exn)
-       in
-       Core.printf "postprocess %d\n%!" !cnt;
-       let space_usage =
-         -1.0 * (Map.find_exn solution.problem (Item_name.of_string "building-size")
-         |> merge_and_sum solution.recipes
-              ~f:(function
-                | `Left _amount -> 0.0 (* recipe does not use space *)
-                | `Right _ -> 0.0 (* recipe itself is not used? *)
-                | `Both (space_per_recipe, recipes_used) -> (recipes_used * space_per_recipe)))
-       in
-       let value_shadow_price =
-         merge_and_sum solution.shadow_prices ~f:(function
-             | `Left _price -> 0.0
-             | `Right _amount -> failwith "price unknown"
-             | `Both (price, amount) -> price * amount)
-       in
-       let capital_cost_per_recipe =
-         Map.map capital_per_recipe ~f:value_shadow_price
-       in
-       let total_capital =
-         merge_and_sum solution.recipes capital_cost_per_recipe
-              ~f:(function
-                | `Left _amount -> 0.0 (* must be "collect-goal-item" *)
-                | `Right _ -> 0.0 (* unused *)
-                | `Both (x, y) -> x * y)
-       in
-       let space_value =
-         value_shadow_price (Value.of_list [ space_usage, Item_name.of_string "building-size" ])
-       in
-       let growth_value =
-         total_capital * growth / 3600.
-       in
-       Lp.Optimal_factory.report solution;
-       (*       print_s [%sexp (capital_cost_per_recipe : float String.Map.t)]; *)
-       printf "growth-value: %f\n" growth_value;
-       printf "space-value: %f\n" space_value;
-       printf "output-value1: %f\n" bottles_produced;
-       printf "output-value2: %f\n" solution.goal_item_output;
-       printf "output-value3 factor (must be -1): %f\n" (value_shadow_price (Value.singleton goal_item 1.0));
+  let solve recipes =
+    design_factory (assume_growth recipes ~growth)
   in
-  let _ = assert false in
-  let crafting_recipes_with_modules = [] (* crafting_recipes_with_modules game_data  *) in
+  let report recipes solution = report ~growth ~goal_item recipes solution in
+  report recipes (Option.value_exn (solve recipes));
+  let crafting_recipes_with_modules = crafting_recipes_with_modules game_data in
   Core.printf "%d\n%!" (List.length crafting_recipes_with_modules);
-    let growth_via_prices = snd (
+  let rec improve recipes =
+    let solution = (Option.value_exn (solve recipes)) in
+    report recipes solution;
+    let prices = solution.shadow_prices in
+    List.map crafting_recipes_with_modules
+      ~f:(fun (base_name, name, investment) ->
+        base_name, (name, investment)
+      )
+    |> Recipe_name.Map.of_alist_multi
+    |> Map.map ~f:(fun l ->
+      List.map l ~f:(fun (name, investment) ->
+          ((name, investment),
+           let utility = 
+             Value.utility 
+               ~item_price:(fun item ->
+                 match Map.find prices item with
+                 | None -> 9999999999. (* raise_s [%sexp  "price not found", (item : Item_name.t)] *)
+                 | Some price -> price
+               )
+           in
+         let profit =
+           utility (Investment.pure_output investment ~growth)
+         in
+         let capital = 
+           utility investment.capital
+         in
+         (profit, (profit / capital))
+          )
+      )
+      |> List.sort ~compare:(fun (_, (p, _x)) (_, (q, _y)) ->
+           (* we should compare x and y, not p and q, but x and y currently depend on capital prices, which are less reliable *)
+           Float.compare p q)
+      |> List.rev
+      |> List.hd_exn)
+    |> Map.data
+    |> List.sort ~compare:(fun (_, (p, _x)) (_, (q, _y)) ->
+           (* we should compare x and y, not p and q, but x and y currently depend on capital prices, which are less reliable *)
+           Float.compare p q)
+    |> List.rev
+    |> (fun l -> List.take l 20)
+    |> List.filter ~f:(fun (_, (p, _)) -> Float.(>) p 1e-5)
+    |> fun l ->
+       List.iter l ~f:(fun ((i, _inv), (profit, payback)) -> print_s [%sexp (i : string), (profit : float), (payback : float)]);
+       improve (recipes @ List.map l ~f:fst)
+  in
+  improve recipes
+(*  let growth_via_prices = snd (
         binary_search 0.0 10.0 ~f:(fun growth ->
             match Lp.Item_prices.find (
                 assume_growth recipes ~growth
@@ -452,10 +484,10 @@ let solve game_data () =
     match Lp.Item_prices.find (assume_growth recipes ~growth:growth_via_prices) with
     | `Too_easy -> assert false
     | `Ok solution ->
-      Lp.Item_prices.report solution
-        ~extra:(
-          List.map ~f:(fun (name, investment) -> (name, Investment.pure_output investment ~growth:growth_via_prices)) crafting_recipes_with_modules
-        )
+    Lp.Item_prices.report solution
+    ~extra:(
+    List.map ~f:(fun (name, investment) -> (name, Investment.pure_output investment ~growth:growth_via_prices)) crafting_recipes_with_modules
+    )
   in
   let growth_via_design = 
     fst (binary_search 0.0 10.0 ~f:(fun growth ->
@@ -474,7 +506,7 @@ let solve game_data () =
       Lp.Optimal_factory.report solution
   in
   Core.printf "growth: %f-%f\n%!" growth_via_design growth_via_prices;
-  ()
+  () *)
 ;;
 
 let game_data_flag =

@@ -40,14 +40,14 @@ let inserter_as_investment ~utilization : Investment.t = {
   capital = Value.of_list [(1.0, Item_name.of_string "inserter")];
 }
 
-let trivial_recipe_output_and_capital game_data ~recipe ~machine =
+let trivial_recipe_output_and_capital game_data ~recipe ~machine ~module_effects ~module_names =
   let entity = Option.value_exn (Game_data.entity_by_item_name game_data machine) in
   let len = Bounding_box.weird_metric entity.collision_box in
   let land_ = Bounding_box.area_with_margin entity.collision_box in
   let recipe_itself : Investment.t = {
     output =
       Crafting_recipes.crafting_recipe_output
-        game_data ~machine ~recipe ~module_effects:(Modules.Effects.zero) ~utilization:1.0;
+        game_data ~machine ~recipe ~module_effects ~utilization:1.0;
     capital = Value.of_list [1.0, machine];
   }
   in
@@ -56,8 +56,12 @@ let trivial_recipe_output_and_capital game_data ~recipe ~machine =
       land_, Investment.passive_capital (Value.singleton (Item_name.of_string "landfill-sand-3") 1.0);
       1.0, inserter_as_investment ~utilization:1.0;
       len, Investment.free_output (Value.singleton (Item_name.of_string "building-size") (-1.0));
+      1.0, Investment.passive_capital (Value.of_list (List.map module_names ~f:(fun x -> 1.0, x)))
     ]
 
+let trivial_recipe_output_and_capital' =
+  trivial_recipe_output_and_capital ~module_effects:(Modules.Effects.zero) ~module_names:[]
+  
 let output game_data : t -> Value.t = 
     add_componentwise ~f:(function
     | Passive _item -> Value.zero
@@ -74,7 +78,7 @@ let output game_data : t -> Value.t =
         machine;
         recipe;
       } ->
-      (trivial_recipe_output_and_capital game_data ~recipe ~machine).output)
+      (trivial_recipe_output_and_capital' game_data ~recipe ~machine).output)
 
 let capital game_data : t -> Value.t = 
     add_componentwise ~f:(
@@ -86,7 +90,7 @@ let capital game_data : t -> Value.t =
             machine;
             recipe;
           } -> 
-          (trivial_recipe_output_and_capital game_data ~recipe ~machine).capital
+          (trivial_recipe_output_and_capital' game_data ~recipe ~machine).capital
         | Offshore_pump pump ->
           (Value.of_list [1.0, pump])
       )

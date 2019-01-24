@@ -149,10 +149,6 @@ end = struct
     let recipe_amount recipe =
       Option.value ~default:0.0 (Map.find t.recipes recipe)
     in
-    let _energy_price = match Map.find t.shadow_prices Item_name.electrical_mj with
-      | None -> failwith "no energy price"
-      | Some p -> p
-    in
     let () =
       Map.mapi t.problem ~f:(fun ~key:_ ~data ->
           let net = 
@@ -273,6 +269,11 @@ end = struct
         |> String.Map.of_alist_exn
         |> Map.filter ~f:(fun x -> Float.(>) x 1e-8)
       in
+      let energy_price = match Map.find shadow_prices Item_name.electrical_mj with
+        | None -> failwith "no energy price"
+        | Some p -> p
+      in
+      let shadow_prices = Map.map shadow_prices ~f:(fun x -> x / energy_price) in
       Some {
           goal_item_output = z;
           recipes = recipes_map;

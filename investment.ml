@@ -5,7 +5,7 @@ open Float
 type t = {
   output : Value.t;
   capital : Value.t;
-}
+} [@@deriving sexp_of]
 
 let passive_capital capital = { output = Value.zero; capital; }
 
