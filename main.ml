@@ -288,11 +288,11 @@ let recipes game_data =
           conversion "big-bottle" ( 
             Item_name.Map.of_alist_exn [
               (Item_name.of_string "big-bottle"), 1.0;
-              (Item_name.of_string "high-tech-science-pack"), -1.0;
+              (*              (Item_name.of_string "high-tech-science-pack"), -1.0; *)
               (Item_name.of_string "science-pack-1"), -1.0;
               (Item_name.of_string "science-pack-2"), -1.0;
-              (Item_name.of_string "science-pack-3"), -1.0;
-              (Item_name.of_string "productivity-module-4"), -0.1;
+(*              (Item_name.of_string "science-pack-3"), -1.0;
+                (Item_name.of_string "productivity-module-4"), -0.1; *)
             ]);
           ]
 
@@ -399,7 +399,8 @@ let report ~growth ~goal_item (recipes : (string * Investment.t) list) (solution
   let growth_value =
     total_capital * growth / 3600.
   in
-  Lp.Optimal_factory.report solution;
+  let html = Lp.Optimal_factory.report solution in
+  let%map () = Writer.save "report.html" ~contents:(Html.render html) in
   (*       print_s [%sexp (capital_cost_per_recipe : float String.Map.t)]; *)
   printf "growth output: %f\n" growth_value;
   printf "building-size input: %f\n" space_value;
@@ -409,25 +410,25 @@ let report ~growth ~goal_item (recipes : (string * Investment.t) list) (solution
 let solve game_data () =
   let recipes = recipes game_data in
   (*  explain_lack_of_growth recipes; *)
-  let%map () =
+  let%bind () =
     Writer.save
       ~contents:(Sexp.to_string_hum [%sexp (String.Map.of_alist_exn (assume_growth recipes ~growth:0.05) : Value.t String.Map.t)]) "recipes.sexp"
   in
   let goal_item = (Item_name.of_string "big-bottle") in
   (*  let design_factory recipes = Lp.Optimal_factory.design ~goal_item:(Item_name.electrical_mj) ~recipes in *)
-  let growth = 4.1 in
+  let growth = 0.1 in
   let design_factory recipes =
     Lp.Optimal_factory.design ~goal_item ~recipes in
   let solve recipes =
     design_factory (assume_growth recipes ~growth)
   in
   let report recipes solution = report ~growth ~goal_item recipes solution in
-  report recipes (Option.value_exn (solve recipes));
+  let%bind () = report recipes (Option.value_exn (solve recipes)) in
   let crafting_recipes_with_modules = crafting_recipes_with_modules game_data in
   Core.printf "%d\n%!" (List.length crafting_recipes_with_modules);
   let rec improve recipes =
     let solution = (Option.value_exn (solve recipes)) in
-    report recipes solution;
+    let%bind () = report recipes solution in
     let prices = solution.shadow_prices in
     List.map crafting_recipes_with_modules
       ~f:(fun (base_name, name, investment) ->
