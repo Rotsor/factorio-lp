@@ -32,7 +32,7 @@ stdenv.mkDerivation rec {
 
   meta = with stdenv.lib; {
     description = "GLPK bindings for OCaml";
-    license     = licenses.gpl;
+    license     = licenses.gpl2;
     maintainers = with maintainers; [ aalekseyev ];
     inherit (src.meta) homepage;
     inherit (ocaml.meta) platforms;
