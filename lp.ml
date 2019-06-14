@@ -155,6 +155,7 @@ end = struct
     module Anchor_namespace (M : sig
         type t
         val to_string : t -> string
+        val to_html : t -> Html.t
         val namespace : string
       end) = struct
 
@@ -163,23 +164,27 @@ end = struct
       let link t =
         let name = M.to_string t in
         (* some url quoting is in order, I guess, but whatever *)
-        Html.link (Html.text name) ~url:("#" ^ anchor_name name)
+        Html.link (M.to_html t) ~url:("#" ^ anchor_name name)
 
       let anchor t =
         let name = M.to_string t in
-        Html.anchor (Html.text name) ~id:(anchor_name name)
+        Html.anchor (M.to_html t) ~id:(anchor_name name)
         
     end
 
     module Recipe_name_anchor = Anchor_namespace (
       struct
         include Recipe_name
+        let to_html t = Html.text t
         let namespace = "recipe"
       end)
 
     module Item_name_anchor = Anchor_namespace (
       struct
         include Item_name
+        let to_html t =
+          Html.concat
+            [Html.img ~url:("all-icons/" ^ to_string t ^ ".png"); Html.text (" " ^ to_string t)]
         let namespace = "item"
       end)
         
@@ -220,7 +225,7 @@ end = struct
       let details ts =
         Html.concat (
           List.map ts ~f:(fun recipe ->
-              Html.div (
+              Html.div ~class_:"big" (
                 let small_table name rows =
                   table
                     ~columns:[
@@ -281,7 +286,7 @@ end = struct
       let details ts =
         Html.concat (
           List.map ts ~f:(fun item ->
-              Html.div (
+              Html.div ~class_:"big" (
                 let small_table name rows =
                   table
                     ~columns:[

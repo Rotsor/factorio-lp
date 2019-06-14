@@ -1,0 +1,31 @@
+a{
+    color:#ff7200
+}
+
+td:nth-child(1) {
+    text-align: left;
+}
+
+td {
+    text-align: right;
+}
+
+body {
+	background-color:#4c4c4c;
+    color: white;
+	font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;
+}
+
+img {
+	vertical-align:middle;
+	background-color:#7c7c7c;
+}
+
+table {
+	margin: 10px;
+}
+
+div.big {
+	background-color:#3c3c3c;
+	margin:30px;
+}

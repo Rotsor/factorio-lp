@@ -14,4 +14,6 @@ val anchor : id:string -> t -> t
 
 val render : t -> string
 
-val div : t -> t
+val div : ?class_:string -> t -> t
+
+val img : url:string -> t

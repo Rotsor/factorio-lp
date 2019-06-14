@@ -37,13 +37,21 @@ let anchor ~id t =
 
 let style = {css|
   <style type="text/css">
-  td {
-    padding-right: 2em;
-    text-align: right;
-  }
+
   </style>
   |css}
 
-let render x = style ^ x
+let render x =
+  sprintf {|<html>
+            <link href="style.css" rel="stylesheet" type="text/css"/>
+            <body>%s</body></html>|}
+    (style ^ x)
 
-let div t = tag "div" t
+let div ?class_ t =
+  match class_ with
+  | None ->
+    tag "div" t
+  | Some class_ ->
+    sprintf {|<div class="%s">%s</div>|} (html_escape class_) t
+
+let img ~url = sprintf {|<img src="%s" height="32" width="32"></img>|} url
